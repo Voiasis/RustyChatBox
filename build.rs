@@ -59,14 +59,5 @@ exec \"${HERE}/usr/bin/rustychatbox\" \"$@\"\
 
     // Print post-build instructions
     println!("cargo:warning=AppDir created at {}.", app_dir);
-    println!("cargo:warning=To create AppImage, run `just build` or manually:");
-    println!("cargo:warning=  cp target/release/rustychatbox AppDir/usr/bin/rustychatbox");
-    println!("cargo:warning=  cp /lib64/libgcc_s.so.1 AppDir/usr/lib/");
-    println!("cargo:warning=  cp /usr/lib64/libGL.so.1 AppDir/usr/lib/ || true");
-    println!("cargo:warning=  cp /usr/lib64/libEGL.so.1 AppDir/usr/lib/ || true");
-    println!("cargo:warning=  cp /usr/lib64/libwayland-client.so.0 AppDir/usr/lib/ || true");
-    println!("cargo:warning=  cp /usr/lib64/libwayland-egl.so.1 AppDir/usr/lib/ || true");
-    println!("cargo:warning=  cp /usr/lib64/libwayland-cursor.so.0 AppDir/usr/lib/ || true");
-    println!("cargo:warning=  cp /usr/lib64/libxkbcommon.so.0 AppDir/usr/lib/ || true");
-    println!("cargo:warning=  appimagetool AppDir RustyChatBox.AppImage");
+    println!("cargo:warning=To create AppImage, run `just build`");
 }

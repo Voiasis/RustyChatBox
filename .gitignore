@@ -3,4 +3,6 @@
 .vscode
 .git
 RustyChatBox.AppImage
+RustyChatBox-x86_64.AppImage
+linuxdeploy-x86_64.AppImage
 decoded_icon.png
