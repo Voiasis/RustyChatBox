@@ -1,0 +1,6 @@
+/target
+/AppDir
+.vscode
+.git
+RustyChatBox.AppImage
+decoded_icon.png
