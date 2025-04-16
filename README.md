@@ -17,7 +17,6 @@ The project is in its early stages and serves as a semi-functional proof-of-conc
 ### Prerequisites
 - **Rust**: Install via [rustup](https://rustup.rs/).
 - **just**: A command runner. Install it from [here](https://github.com/casey/just).
-- Ensure you have permissions to execute the AppImage.
 
 ### Steps
 - Clone repo `git clone https://github.com/Voiasis/RustyChatBox.git`
@@ -25,7 +24,7 @@ The project is in its early stages and serves as a semi-functional proof-of-conc
 - Build project `just build`
 - Run AppImage `./RustyChatBox.AppImage`
 
-Let me know if you run into issues or have suggestions.
+Let me know if you run into issues or have suggestions here or on [Discord](https://discord.gg/kzYjRnppFn).
 
 ## License
 This project is licensed under the [GPLv3 License](https://github.com/Voiasis/RustyChatBox?tab=GPL-3.0-1-ov-file#readme).
