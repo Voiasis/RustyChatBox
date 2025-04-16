@@ -31,11 +31,6 @@ To build RustyChatBox, you need the following tools and libraries installed:
     cargo install just
     ```
 
-- **curl**: Required to download build tools. Usually pre-installed, but ensure it’s available:
-    ```bash
-    curl --version
-    ```
-
 - **System Libraries**: Required for GUI and other dependencies. Install based on your distribution:
 
   - **Fedora**:
@@ -58,7 +53,7 @@ To build RustyChatBox, you need the following tools and libraries installed:
         libXext-devel \
         libXau-devel \
         libffi-devel \
-        curl
+        git
     ```
 
   - **Ubuntu/Debian**:
@@ -81,7 +76,7 @@ To build RustyChatBox, you need the following tools and libraries installed:
         libxext-dev \
         libxau-dev \
         libffi-dev \
-        curl
+        git
     ```
 
   - **Arch**:
@@ -103,7 +98,7 @@ To build RustyChatBox, you need the following tools and libraries installed:
         libxext \
         libxau \
         libffi \
-        curl
+        git
     ```
 
 ### Steps
