@@ -31,6 +31,10 @@ build: ensure-tools
     cp /lib64/libXext.so.6 AppDir/usr/lib/ || true
     cp /lib64/libXau.so.6 AppDir/usr/lib/ || true
     cp /lib64/libffi.so.8 AppDir/usr/lib/ || true
+    cp /lib64/libplayerctl.so.2 AppDir/usr/lib/ || true
+    cp /lib64/libQt5Core.so.5 AppDir/usr/lib/ || true
+    cp /lib64/libQt5Gui.so.5 AppDir/usr/lib/ || true
+    cp /lib64/libQt5Widgets.so.5 AppDir/usr/lib/ || true
     # Copy Ubuntu/Debian libraries
     cp /usr/lib/x86_64-linux-gnu/libgtk-3.so.0 AppDir/usr/lib/ || true
     cp /usr/lib/x86_64-linux-gnu/libgdk-3.so.0 AppDir/usr/lib/ || true
@@ -52,6 +56,10 @@ build: ensure-tools
     cp /usr/lib/x86_64-linux-gnu/libXext.so.6 AppDir/usr/lib/ || true
     cp /usr/lib/x86_64-linux-gnu/libXau.so.6 AppDir/usr/lib/ || true
     cp /usr/lib/x86_64-linux-gnu/libffi.so.8 AppDir/usr/lib/ || true
+    cp /usr/lib/x86_64-linux-gnu/libplayerctl.so.2 AppDir/usr/lib/ || true
+    cp /usr/lib/x86_64-linux-gnu/libQt5Core.so.5 AppDir/usr/lib/ || true
+    cp /usr/lib/x86_64-linux-gnu/libQt5Gui.so.5 AppDir/usr/lib/ || true
+    cp /usr/lib/x86_64-linux-gnu/libQt5Widgets.so.5 AppDir/usr/lib/ || true
     # Copy Arch libraries
     cp /usr/lib/libgtk-3.so.0 AppDir/usr/lib/ || true
     cp /usr/lib/libgdk-3.so.0 AppDir/usr/lib/ || true
@@ -73,6 +81,10 @@ build: ensure-tools
     cp /usr/lib/libXext.so.6 AppDir/usr/lib/ || true
     cp /usr/lib/libXau.so.6 AppDir/usr/lib/ || true
     cp /usr/lib/libffi.so.8 AppDir/usr/lib/ || true
+    cp /usr/lib/libplayerctl.so.2 AppDir/usr/lib/ || true
+    cp /usr/lib/libQt5Core.so.5 AppDir/usr/lib/ || true
+    cp /usr/lib/libQt5Gui.so.5 AppDir/usr/lib/ || true
+    cp /usr/lib/libQt5Widgets.so.5 AppDir/usr/lib/ || true
     ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir RustyChatBox-x86_64.AppImage
 
 # Ensure appimagetool are available
