@@ -53,7 +53,8 @@ To build RustyChatBox, you need the following tools and libraries installed:
         libXext-devel \
         libXau-devel \
         libffi-devel \
-        git
+        git \
+        playerctl
     ```
 
   - **Ubuntu/Debian**:
@@ -76,7 +77,8 @@ To build RustyChatBox, you need the following tools and libraries installed:
         libxext-dev \
         libxau-dev \
         libffi-dev \
-        git
+        git \
+        playerctl
     ```
 
   - **Arch**:
@@ -98,7 +100,8 @@ To build RustyChatBox, you need the following tools and libraries installed:
         libxext \
         libxau \
         libffi \
-        git
+        git \
+        playerctl
     ```
 
 ### Steps
