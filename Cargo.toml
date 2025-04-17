@@ -5,7 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-eframe = { version = "0.22", default-features = false, features = ["default", "wayland"] }
+eframe = { version = "0.22", default-features = false, features = ["default", "wayland", "glow"] }
 image = { version = "0.24", default-features = false, features = ["png"] }
 serde = { version = "1.0", features = ["derive"] }
 network-interface = "2.0.1"
@@ -22,3 +22,8 @@ open = "3.2"
 dirs = "5.0"
 rand = "0.8"
 log = "0.4"
+
+[profile.release]
+strip = true
+opt-level = 3
+lto = "thin"

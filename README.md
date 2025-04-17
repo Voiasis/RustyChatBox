@@ -55,7 +55,8 @@ To build RustyChatBox, you need the following tools and libraries installed:
         libffi-devel \
         git \
         playerctl \
-        qt5ct
+        qt5ct \
+        lshw
     ```
 
   - **Ubuntu/Debian**:
@@ -104,7 +105,8 @@ To build RustyChatBox, you need the following tools and libraries installed:
         libffi \
         git \
         playerctl \
-        qt5ct
+        qt5ct \
+        lshw
     ```
 
 ### Steps
