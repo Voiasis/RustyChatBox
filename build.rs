@@ -44,7 +44,6 @@ Comment=A chat application built with Rust
         format!("{}/usr/share/applications/rustychatbox.desktop", app_dir),
     )
     .expect("Failed to copy .desktop file");
-
     // Create AppRun
     let apprun_content = "\
 #!/bin/bash

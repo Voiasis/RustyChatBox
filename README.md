@@ -81,7 +81,8 @@ To build RustyChatBox, you need the following tools and libraries installed:
         libffi-dev \
         git \
         playerctl \
-        qt5ct
+        qt5ct \
+        lshw
     ```
 
   - **Arch**:
