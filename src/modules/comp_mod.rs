@@ -1,10 +1,9 @@
-// comp_mod.rs
 use serde::{Deserialize, Serialize};
-use sysinfo::{CpuExt, System, SystemExt};
+use sysinfo::{CpuExt, SystemExt};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-
+use eframe::egui;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentStatsOptions {
     pub enabled: bool,
@@ -27,7 +26,6 @@ pub struct ComponentStatsOptions {
     pub ram_show_max: bool,
     pub ram_stylized_uppercase: bool,
 }
-
 impl ComponentStatsOptions {
     pub fn new() -> Self {
         Self {
@@ -52,20 +50,59 @@ impl ComponentStatsOptions {
             ram_stylized_uppercase: false,
         }
     }
+    pub fn show_component_stats_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        let mut response = ui.interact(
+            egui::Rect::EVERYTHING,
+            ui.id().with("component_stats_options"),
+            egui::Sense::hover(),
+        );
+        response |= ui.checkbox(&mut self.show_cpu, "Show CPU stats");
+        if self.show_cpu {
+            response |= ui.checkbox(&mut self.cpu_display_model, "Display CPU model");
+            if self.cpu_display_model {
+                ui.label("Custom CPU model:");
+                response |= ui.text_edit_singleline(self.cpu_custom_model.as_mut().unwrap_or(&mut String::new()));
+            }
+            response |= ui.checkbox(&mut self.cpu_round_usage, "Round CPU usage");
+            response |= ui.checkbox(&mut self.cpu_stylized_uppercase, "Stylized uppercase for CPU");
+        }
+        response |= ui.checkbox(&mut self.show_gpu, "Show GPU stats");
+        if self.show_gpu {
+            response |= ui.checkbox(&mut self.gpu_display_model, "Display GPU model");
+            if self.gpu_display_model {
+                ui.label("Custom GPU model:");
+                response |= ui.text_edit_singleline(self.gpu_custom_model.as_mut().unwrap_or(&mut String::new()));
+            }
+            response |= ui.checkbox(&mut self.gpu_round_usage, "Round GPU usage");
+            response |= ui.checkbox(&mut self.gpu_stylized_uppercase, "Stylized uppercase for GPU");
+        }
+        response |= ui.checkbox(&mut self.show_vram, "Show VRAM stats");
+        if self.show_vram {
+            response |= ui.checkbox(&mut self.vram_round_usage, "Round VRAM usage");
+            response |= ui.checkbox(&mut self.vram_show_max, "Show max VRAM");
+            response |= ui.checkbox(&mut self.vram_stylized_uppercase, "Stylized uppercase for VRAM");
+        }
+        response |= ui.checkbox(&mut self.show_ram, "Show RAM stats");
+        if self.show_ram {
+            response |= ui.checkbox(&mut self.ram_round_usage, "Round RAM usage");
+            response |= ui.checkbox(&mut self.ram_show_max, "Show max RAM");
+            response |= ui.checkbox(&mut self.ram_stylized_uppercase, "Stylized uppercase for RAM");
+        }
+        response
+    }
 }
-
 pub struct ComponentStatsModule {
-    system: System,
+    system: sysinfo::System,
     gpu_device: Option<String>,
     last_update: std::time::Instant,
     cached_stats: String,
 }
-
 impl ComponentStatsModule {
     pub fn new() -> Self {
-        let mut system = System::new_all();
+        let mut system = sysinfo::System::new_all();
         system.refresh_all();
-        let gpu_device = Self::detect_amd_gpu();
+        let gpu_device = Self::detect_gpu();
+        println!("DEBUG: Detected GPU device: {:?}", gpu_device);
         Self {
             system,
             gpu_device,
@@ -73,7 +110,6 @@ impl ComponentStatsModule {
             cached_stats: String::new(),
         }
     }
-
     pub fn get_primary_gpu() -> Option<String> {
         if let Ok(entries) = fs::read_dir("/sys/class/drm/") {
             for entry in entries.flatten() {
@@ -81,15 +117,16 @@ impl ComponentStatsModule {
                 if path.join("device").exists() {
                     if let Ok(file_name) = entry.file_name().into_string() {
                         if file_name.starts_with("card") {
+                            println!("DEBUG: Found primary GPU: {}", file_name);
                             return Some(file_name);
                         }
                     }
                 }
             }
         }
+        println!("DEBUG: No primary GPU found in /sys/class/drm");
         None
     }
-
     pub fn get_available_gpus() -> Vec<String> {
         let mut gpus = Vec::new();
         if let Ok(output) = Command::new("lshw")
@@ -108,23 +145,22 @@ impl ComponentStatsModule {
                 }
             }
         } else {
-            eprintln!("Failed to execute lshw command");
+            eprintln!("DEBUG: Failed to execute lshw command");
         }
+        println!("DEBUG: Available GPUs: {:?}", gpus);
         gpus.sort();
         gpus
     }
-
     pub fn extract_model_name(full_name: &str) -> String {
         if let Some(start) = full_name.rfind(' ') {
             return full_name[start + 1..].to_string();
         }
         full_name.to_string()
     }
-
-    fn detect_amd_gpu() -> Option<String> {
+    fn detect_gpu() -> Option<String> {
         let drm_path = Path::new("/sys/class/drm");
         if !drm_path.exists() {
-            eprintln!("Warning: /sys/class/drm does not exist. Unable to detect AMD GPU.");
+            eprintln!("DEBUG: /sys/class/drm does not exist. Unable to detect GPU.");
             return None;
         }
         if let Ok(entries) = fs::read_dir(drm_path) {
@@ -133,57 +169,100 @@ impl ComponentStatsModule {
                 if name.starts_with("card") && !name.contains('-') {
                     let device_path = entry.path().join("device/vendor");
                     if let Ok(vendor) = fs::read_to_string(&device_path) {
-                        if vendor.trim() == "0x1002" {
+                        let vendor_id = vendor.trim();
+                        // AMD (0x1002), NVIDIA (0x10de), Intel (0x8086)
+                        if vendor_id == "0x1002" || vendor_id == "0x10de" || vendor_id == "0x8086" {
+                            println!("DEBUG: Detected GPU: {} (Vendor ID: {})", name, vendor_id);
                             return Some(name);
                         }
                     }
                 }
             }
         }
-        None
+        println!("DEBUG: No supported GPU found, falling back to primary GPU");
+        Self::get_primary_gpu()
     }
-
     pub fn get_cpu_usage(&mut self) -> f32 {
         self.system.refresh_cpu();
-        self.system.global_cpu_info().cpu_usage()
+        let usage = self.system.global_cpu_info().cpu_usage();
+        println!("DEBUG: CPU usage: {}%", usage);
+        usage
     }
-
     pub fn get_cpu_model(&self) -> String {
-        self.system.global_cpu_info().brand().to_string()
+        let model = self.system.global_cpu_info().brand().to_string();
+        println!("DEBUG: CPU model: {}", model);
+        model
     }
-
     pub fn get_memory_usage(&self) -> (u64, u64) {
         let total = self.system.total_memory();
         let used = self.system.used_memory();
+        println!("DEBUG: Memory usage: {} / {} KB", used, total);
         (used, total)
     }
-
     pub fn get_gpu_usage(&self) -> Option<f32> {
-        self.gpu_device.as_ref().and_then(|card| {
+        if let Some(card) = &self.gpu_device {
             let busy_path = format!("/sys/class/drm/{}/device/gpu_busy_percent", card);
-            fs::read_to_string(&busy_path)
-                .map_err(|e| eprintln!("Failed to read {}: {}", busy_path, e))
-                .ok()
-                .and_then(|s| s.trim().parse::<f32>().ok())
-        })
+            if let Ok(s) = fs::read_to_string(&busy_path) {
+                if let Ok(usage) = s.trim().parse::<f32>() {
+                    println!("DEBUG: AMD GPU usage: {}%", usage);
+                    return Some(usage);
+                } else {
+                    eprintln!("DEBUG: Failed to parse GPU usage from {}: {}", busy_path, s);
+                }
+            } else {
+                eprintln!("DEBUG: Failed to read GPU usage file: {}", busy_path);
+            }
+            if let Ok(output) = Command::new("nvidia-smi")
+                .arg("--query-gpu=utilization.gpu")
+                .arg("--format=csv,noheader")
+                .output()
+            {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                if let Some(usage_str) = output_str.lines().next() {
+                    if let Some(usage) = usage_str.trim().strip_suffix(" %") {
+                        if let Ok(usage) = usage.parse::<f32>() {
+                            println!("DEBUG: NVIDIA GPU usage: {}%", usage);
+                            return Some(usage);
+                        } else {
+                            eprintln!("DEBUG: Failed to parse NVIDIA GPU usage: {}", usage_str);
+                        }
+                    }
+                }
+            } else {
+                eprintln!("DEBUG: Failed to execute nvidia-smi command");
+            }
+        } else {
+            eprintln!("DEBUG: No GPU device detected for usage");
+        }
+        None
     }
-
     pub fn get_gpu_vram_usage(&self) -> Option<(u64, u64)> {
-        self.gpu_device.as_ref().and_then(|card| {
+        if let Some(card) = &self.gpu_device {
             let mem_info_path = format!("/sys/class/drm/{}/device/mem_info_vram_total", card);
             let used_path = format!("/sys/class/drm/{}/device/mem_info_vram_used", card);
-            let total = fs::read_to_string(&mem_info_path)
-                .map_err(|e| eprintln!("Failed to read {}: {}", mem_info_path, e))
-                .ok()
-                .and_then(|s| s.trim().parse::<u64>().ok())?;
-            let used = fs::read_to_string(&used_path)
-                .map_err(|e| eprintln!("Failed to read {}: {}", used_path, e))
-                .ok()
-                .and_then(|s| s.trim().parse::<u64>().ok())?;
-            Some((used, total))
-        })
+            if let Ok(total_str) = fs::read_to_string(&mem_info_path) {
+                if let Ok(total) = total_str.trim().parse::<u64>() {
+                    if let Ok(used_str) = fs::read_to_string(&used_path) {
+                        if let Ok(used) = used_str.trim().parse::<u64>() {
+                            println!("DEBUG: VRAM usage: {} / {} bytes", used, total);
+                            return Some((used, total));
+                        } else {
+                            eprintln!("DEBUG: Failed to parse VRAM used: {}", used_str);
+                        }
+                    } else {
+                        eprintln!("DEBUG: Failed to read VRAM used file: {}", used_path);
+                    }
+                } else {
+                    eprintln!("DEBUG: Failed to parse VRAM total: {}", total_str);
+                }
+            } else {
+                eprintln!("DEBUG: Failed to read VRAM total file: {}", mem_info_path);
+            }
+        } else {
+            eprintln!("DEBUG: No GPU device detected for VRAM usage");
+        }
+        None
     }
-
     fn update_stats(&mut self, options: &ComponentStatsOptions) {
         self.system.refresh_all();
         let mut parts = Vec::new();
@@ -210,7 +289,6 @@ impl ComponentStatsModule {
             };
             parts.push(cpu_text);
         }
-
         if options.show_gpu {
             if let Some(gpu_usage) = self.get_gpu_usage() {
                 let gpu_label = if options.gpu_display_model {
@@ -235,9 +313,10 @@ impl ComponentStatsModule {
                     gpu_text
                 };
                 parts.push(gpu_text);
+            } else {
+                eprintln!("DEBUG: GPU usage unavailable, skipping");
             }
         }
-
         if options.show_vram {
             if let Some((used_vram, total_vram)) = self.get_gpu_vram_usage() {
                 let used_gb = used_vram as f64 / 1_073_741_824.0;
@@ -257,9 +336,10 @@ impl ComponentStatsModule {
                     vram_text
                 };
                 parts.push(vram_text);
+            } else {
+                eprintln!("DEBUG: VRAM usage unavailable, skipping");
             }
         }
-
         if options.show_ram {
             let (used_memory, total_memory) = self.get_memory_usage();
             let used_gb = used_memory as f64 / 1_073_741_824.0;
@@ -280,10 +360,9 @@ impl ComponentStatsModule {
             };
             parts.push(ram_text);
         }
-
         self.cached_stats = parts.join("|");
+        println!("DEBUG: Updated stats: {}", self.cached_stats);
     }
-
     pub fn get_formatted_stats(&mut self, options: &ComponentStatsOptions) -> String {
         if self.last_update.elapsed().as_secs() >= 1 {
             self.update_stats(options);

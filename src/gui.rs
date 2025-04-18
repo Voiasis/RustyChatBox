@@ -1,10 +1,9 @@
-// gui.rs
 use eframe::egui;
 use serde::{Serialize, Deserialize};
 use std::fs;
-use std::process::Command;
+use crate::config::Config;
 use crate::modules::{
-    appo_mod::{AppOptions, AppOptionsOptions},
+    appo_mod::AppOptionsOptions,
     chat_mod::ChatOptions,
     comp_mod::{ComponentStatsModule, ComponentStatsOptions},
     extr_mod::ExtraOptions,
@@ -14,7 +13,7 @@ use crate::modules::{
     time_mod::{TimeModule, TimeOptions},
 };
 use crate::osc::OscClient;
-
+use arboard::Clipboard;
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub enum Tab {
     Integrations,
@@ -22,12 +21,11 @@ pub enum Tab {
     Chatting,
     Options,
 }
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ChatTab {
     pub message: String,
+    pub is_focused: bool,
 }
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct IntegrationsTab {
     pub personal_status_enabled: bool,
@@ -36,12 +34,10 @@ pub struct IntegrationsTab {
     pub current_time_enabled: bool,
     pub medialink_enabled: bool,
 }
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StatusTab {
     pub new_message: String,
 }
-
 pub struct App {
     current_tab: Tab,
     app_options: AppOptionsOptions,
@@ -64,10 +60,13 @@ pub struct App {
     last_osc_send: std::time::Instant,
     config_changed: bool,
     scroll_to: Option<egui::Id>,
+    pending_scroll_to: Option<egui::Id>,
+    clipboard: Clipboard,
+    live_edit_enabled: bool,
+    previous_osc_preview: String,
 }
-
 impl App {
-    pub fn new(osc_client: OscClient, config: Config) -> Self {
+    pub fn new(osc_client: OscClient, config: Config, clipboard: Clipboard) -> Self {
         Self {
             current_tab: Tab::Integrations,
             app_options: AppOptionsOptions {
@@ -76,6 +75,7 @@ impl App {
             },
             chat_tab: ChatTab {
                 message: String::new(),
+                is_focused: false,
             },
             chat_options: config.chat_options,
             component_stats: config.component_stats_options,
@@ -103,195 +103,26 @@ impl App {
             last_osc_send: std::time::Instant::now(),
             config_changed: false,
             scroll_to: None,
+            pending_scroll_to: None,
+            clipboard,
+            live_edit_enabled: false,
+            previous_osc_preview: String::new(),
         }
     }
-
-    fn update_osc_preview(&mut self) {
-        self.status_module.update_cycle(&self.status_options);
-        let mut parts = Vec::new();
-    
-        // Add Personal Status
-        if self.integrations_tab.personal_status_enabled {
-            if let Some(status) = self.status_module.get_current_message(&self.status_options) {
-                parts.push(status);
-            }
-        }
-    
-        // Add Component Stats (moved above Time)
-        if self.integrations_tab.component_stats_enabled {
-            let stats = self.components_module.get_formatted_stats(&self.component_stats);
-            if !stats.is_empty() {
-                parts.push(stats);
-            }
-        }
-    
-        // Add Network Stats
-        if self.integrations_tab.network_stats_enabled {
-            let interfaces = NetworkStats::get_interfaces();
-            if let Some(iface) = interfaces.first() {
-                let stats = NetworkStats::get_formatted_stats(&self.network_stats.config, &iface.name);
-                if !stats.is_empty() {
-                    parts.push(stats);
-                }
-            }
-        }
-    
-        // Add Current Time
-        if self.integrations_tab.current_time_enabled {
-            let time = TimeModule::get_local_time(&self.time_options);
-            parts.push(time);
-        }
-    
-        // Add MediaLink
-        if self.integrations_tab.medialink_enabled {
-            if let Some(track) = self.media_module.get_formatted_track(&self.media_link) {
-                parts.push(track);
-            }
-        }
-    
-        // Join all parts with the appropriate separator
-        let separator = if self.app_options.app_options.osc_options.separate_lines {
-            "\n"
-        } else {
-            " | "
-        };
-        self.osc_preview = parts.join(separator);
-    
-        // Send to VRChat if enabled
-        if self.send_to_vrchat
-            && !self.osc_preview.is_empty()
-            && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate
-        {
-            let mut message = self.osc_preview.clone();
-            if self.extra_options.slim_mode {
-                message.push_str("\u{0003}\u{001f}");
-            }
-            if let Err(e) = self.osc_client.send_chatbox_message(&message, self.chat_options.play_fx_sound) {
-                eprintln!("Failed to send OSC message: {}", e);
-            }
-            self.last_osc_send = std::time::Instant::now();
-        }
-    }
-
-    pub fn save_config_if_needed(&mut self, config_path: &std::path::Path) {
-        if self.config_changed {
-            let config = Config {
-                app_options: self.app_options.app_options.clone(),
-                personal_status_enabled: self.integrations_tab.personal_status_enabled,
-                component_stats_enabled: self.integrations_tab.component_stats_enabled,
-                network_stats_enabled: self.integrations_tab.network_stats_enabled,
-                current_time_enabled: self.integrations_tab.current_time_enabled,
-                medialink_enabled: self.integrations_tab.medialink_enabled,
-                chat_options: self.chat_options.clone(),
-                component_stats_options: self.component_stats.clone(),
-                extra_options: self.extra_options.clone(),
-                media_link_options: self.media_link.clone(),
-                network_stats_options: self.network_stats.clone(),
-                status_options: self.status_options.clone(),
-                time_options: self.time_options.clone(),
-            };
-            if let Ok(json) = serde_json::to_string_pretty(&config) {
-                if let Err(e) = fs::write(config_path, json) {
-                    eprintln!("Failed to save config: {}", e);
-                }
-            }
-            self.config_changed = false;
-        }
-    }
-}
-
-impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.update_osc_preview();
-
-        // Top panel with title, tabs, and VRChat toggle
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label("VRC OSC");
-                    ui.heading("RustyChatBox");
-                });
-
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.add_space(20.0);
-                    if ui.add(egui::Button::new("Integrations").min_size(egui::vec2(100.0, 40.0))).clicked() {
-                        self.current_tab = Tab::Integrations;
-                    }
-                    if ui.add(egui::Button::new("Status").min_size(egui::vec2(100.0, 40.0))).clicked() {
-                        self.current_tab = Tab::Status;
-                    }
-                    if ui.add(egui::Button::new("Chatting").min_size(egui::vec2(100.0, 40.0))).clicked() {
-                        self.current_tab = Tab::Chatting;
-                    }
-                    if ui.add(egui::Button::new("Options").min_size(egui::vec2(100.0, 40.0))).clicked() {
-                        self.current_tab = Tab::Options;
-                    }
-                });
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.checkbox(&mut self.send_to_vrchat, "Send to VRChat");
-                });
-            });
-        });
-
-        // Right side panel with OSC preview
-        egui::SidePanel::right("right_panel")
-    .resizable(false) // Prevent resizing
-    .default_width(300.0) // Set the width of the side panel
-    .show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            if ui.button("Discord").clicked() {
-                if let Err(e) = open::that("https://discord.gg/kzYjRnppFn") {
-                    eprintln!("Failed to open GitHub URL: {}", e);
-                }
-            }
-            if ui.button("GitHub").clicked() {
-                if let Err(e) = open::that("https://github.com/Voiasis/RustyChatBox") {
-                    eprintln!("Failed to open GitHub URL: {}", e);
-                }
-            }
-            ui.heading("Preview");
-        });
-
-        // Create a fixed-size group for the preview
-        let size = 300.0; // Set the size of the square
-        ui.allocate_ui(egui::vec2(size, size), |ui| {
-            ui.group(|ui| {
-                ui.set_min_size(egui::vec2(size, size)); // Ensure the group is a square
-                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::TopDown), |ui| {
-                    ui.label(&self.osc_preview);
-                });
-            });
-        });
-
-        ui.separator();
-    });
-
-        // Central panel with tab content
-        egui::CentralPanel::default().show(ctx, |ui| {
-            match self.current_tab {
-                Tab::Integrations => self.show_integrations_tab(ui),
-                Tab::Status => self.show_status_tab(ui),
-                Tab::Chatting => self.show_chatting_tab(ui),
-                Tab::Options => self.show_options_tab(ui),
-            }
-        });
-
-        ctx.request_repaint();
-    }
-}
-impl App {
     fn show_integrations_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("Integrations");
+    
         // Personal Status
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.heading("Personal Status");
                 if ui.button("⚙").clicked() {
+                    println!("DEBUG: Personal Status cogwheel clicked");
                     self.current_tab = Tab::Options;
-                    self.scroll_to = Some(egui::Id::new("status_options"));
+                    self.pending_scroll_to = Some(egui::Id::new("status_options"));
                     self.status_options.enabled = true;
                     self.config_changed = true;
+                    ui.ctx().request_repaint();
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.checkbox(&mut self.integrations_tab.personal_status_enabled, "").changed() {
@@ -307,10 +138,12 @@ impl App {
             ui.horizontal(|ui| {
                 ui.heading("Component Stats");
                 if ui.button("⚙").clicked() {
+                    println!("DEBUG: Component Stats cogwheel clicked");
                     self.current_tab = Tab::Options;
-                    self.scroll_to = Some(egui::Id::new("component_stats_options"));
+                    self.pending_scroll_to = Some(egui::Id::new("component_stats_options"));
                     self.component_stats.enabled = true;
                     self.config_changed = true;
+                    ui.ctx().request_repaint();
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.checkbox(&mut self.integrations_tab.component_stats_enabled, "").changed() {
@@ -342,10 +175,12 @@ impl App {
             ui.horizontal(|ui| {
                 ui.heading("Network Stats");
                 if ui.button("⚙").clicked() {
+                    println!("DEBUG: Network Stats cogwheel clicked");
                     self.current_tab = Tab::Options;
-                    self.scroll_to = Some(egui::Id::new("network_stats_options"));
+                    self.pending_scroll_to = Some(egui::Id::new("network_stats_options"));
                     self.network_stats.enabled = true;
                     self.config_changed = true;
+                    ui.ctx().request_repaint();
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.checkbox(&mut self.integrations_tab.network_stats_enabled, "").changed() {
@@ -370,10 +205,12 @@ impl App {
             ui.horizontal(|ui| {
                 ui.heading("Current Time");
                 if ui.button("⚙").clicked() {
+                    println!("DEBUG: Current Time cogwheel clicked");
                     self.current_tab = Tab::Options;
-                    self.scroll_to = Some(egui::Id::new("time_options"));
+                    self.pending_scroll_to = Some(egui::Id::new("time_options"));
                     self.time_options.config.enabled = true;
                     self.config_changed = true;
+                    ui.ctx().request_repaint();
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.checkbox(&mut self.integrations_tab.current_time_enabled, "").changed() {
@@ -389,10 +226,12 @@ impl App {
             ui.horizontal(|ui| {
                 ui.heading("MediaLink");
                 if ui.button("⚙").clicked() {
+                    println!("DEBUG: MediaLink cogwheel clicked");
                     self.current_tab = Tab::Options;
-                    self.scroll_to = Some(egui::Id::new("medialink_options"));
+                    self.pending_scroll_to = Some(egui::Id::new("medialink_options"));
                     self.media_link.enabled = true;
                     self.config_changed = true;
+                    ui.ctx().request_repaint();
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.checkbox(&mut self.integrations_tab.medialink_enabled, "").changed() {
@@ -402,6 +241,11 @@ impl App {
             });
             ui.label("Show the current media track and artist.");
             if self.integrations_tab.medialink_enabled {
+                if let Some(track) = self.media_module.get_formatted_track(&self.media_link) {
+                    ui.label(format!("Now playing: {}", track));
+                } else {
+                    ui.label("No media playing.");
+                }
                 ui.horizontal(|ui| {
                     ui.label("Progress");
                     let duration = self.media_module.get_duration().unwrap_or(1.0);
@@ -444,7 +288,7 @@ impl App {
         if let Some(current) = self.status_module.get_current_message(&self.status_options) {
             ui.label(format!("Current status: {}", current));
             if ui.button("Send to OSC").clicked() {
-                if let Err(e) = self.osc_client.send_chatbox_message(&current, false) {
+                if let Err(e) = self.osc_client.send_chatbox_message(current.as_str(), false) {
                     eprintln!("Failed to send status: {}", e);
                 }
             }
@@ -467,33 +311,281 @@ impl App {
         }
     }
     fn show_chatting_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Chatting");
-        ui.label("Send and manage chat messages.");
-        ui.horizontal(|ui| {
-            ui.label("Message: ");
-            ui.text_edit_singleline(&mut self.chat_tab.message);
-            if ui.button("Send").clicked() && !self.chat_tab.message.is_empty() {
-                let formatted_message = if self.chat_options.add_speech_bubble {
-                    format!("🗨 {}", self.chat_tab.message)
-                } else {
-                    self.chat_tab.message.clone()
-                };
-                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound) {
-                    eprintln!("Failed to send message: {}", e);
+        // Input section pinned to the bottom
+        egui::TopBottomPanel::bottom("chat_input").show(ui.ctx(), |ui| {
+            ui.group(|ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    let placeholder = if self.chat_tab.is_focused || !self.chat_tab.message.is_empty() {
+                        ""
+                    } else {
+                        "Send a chat message"
+                    };
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.chat_tab.message)
+                            .desired_width(200.0)
+                            .hint_text(placeholder),
+                    );
+                    if response.changed() {
+                        self.config_changed = true;
+                    }
+                    if response.has_focus() != self.chat_tab.is_focused {
+                        self.chat_tab.is_focused = response.has_focus();
+                        self.config_changed = true;
+                    }
+                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.chat_tab.message.is_empty() && self.chat_tab.message.len() <= 140 {
+                        let message = self.chat_tab.message.clone();
+                        if self.chat_options.can_send() {
+                            let formatted_message = if self.chat_options.add_speech_bubble {
+                                format!("🗨 {}", message)
+                            } else {
+                                message.clone()
+                            };
+                            self.osc_preview = formatted_message.clone();
+                            if self.send_to_vrchat {
+                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound) {
+                                    eprintln!("Failed to send OSC message: {}", e);
+                                }
+                                self.last_osc_send = std::time::Instant::now();
+                            }
+                            self.chat_options.add_message(message);
+                            self.chat_tab.message.clear();
+                            self.chat_tab.is_focused = false;
+                            self.config_changed = true;
+                        } else {
+                            self.chat_options.set_queued_message(message);
+                            self.chat_tab.message.clear();
+                            self.chat_tab.is_focused = false;
+                            self.config_changed = true;
+                        }
+                    }
+                    ui.label(format!("{}/140", self.chat_tab.message.len()));
+                    if ui.button("Paste").clicked() {
+                        if let Ok(text) = self.clipboard.get_text() {
+                            self.chat_tab.message = text.chars().take(140).collect();
+                            self.chat_tab.is_focused = true;
+                            self.config_changed = true;
+                        }
+                    }
+                    if ui.button("Send").clicked() && !self.chat_tab.message.is_empty() && self.chat_tab.message.len() <= 140 {
+                        let message = self.chat_tab.message.clone();
+                        if self.chat_options.can_send() {
+                            let formatted_message = if self.chat_options.add_speech_bubble {
+                                format!("🗨 {}", message)
+                            } else {
+                                message.clone()
+                            };
+                            self.osc_preview = formatted_message.clone();
+                            if self.send_to_vrchat {
+                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound) {
+                                    eprintln!("Failed to send OSC message: {}", e);
+                                }
+                                self.last_osc_send = std::time::Instant::now();
+                            }
+                            self.chat_options.add_message(message);
+                            self.chat_tab.message.clear();
+                            self.chat_tab.is_focused = false;
+                            self.config_changed = true;
+                        } else {
+                            self.chat_options.set_queued_message(message);
+                            self.chat_tab.message.clear();
+                            self.chat_tab.is_focused = false;
+                            self.config_changed = true;
+                        }
+                    }
+                });
+            });
+        });
+        // Message list and control buttons in a scrollable central panel
+        egui::CentralPanel::default().show(ui.ctx(), |ui| {
+            ui.heading("Chatting");
+            ui.label("Send and manage chat messages.");
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                // Message list
+                ui.group(|ui| {
+                    ui.set_width(ui.available_width());
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64;
+                    let mut remaining_times = Vec::new();
+                    for message in self.chat_options.messages.iter() {
+                        if ((now_ms - message.sent_at_ms) / 1000) < self.chat_options.chat_timeout as u64 {
+                            remaining_times.push(self.chat_options.get_remaining_time(message));
+                        } else {
+                            remaining_times.push(0);
+                        }
+                    }
+                    let mut index = 0;
+                    for (_index, message) in self.chat_options.messages.iter_mut().enumerate().rev() {
+                        if ((now_ms - message.sent_at_ms) / 1000) < self.chat_options.chat_timeout as u64 {
+                            let remaining_time = remaining_times[index];
+                            ui.horizontal(|ui| {
+                                if message.editing {
+                                    let response = ui.add(
+                                        egui::TextEdit::singleline(&mut message.edit_text)
+                                            .desired_width(200.0)
+                                            .hint_text("Edit message"),
+                                    );
+                                    if response.changed() {
+                                        self.config_changed = true;
+                                    }
+                                    if !self.chat_options.live_editing && response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                        message.text = message.edit_text.clone();
+                                        message.sent_at_ms = now_ms;
+                                        let formatted_message = if self.chat_options.add_speech_bubble {
+                                            format!("🗨 {}", message.text)
+                                        } else {
+                                            message.text.clone()
+                                        };
+                                        self.osc_preview = formatted_message.clone();
+                                        if self.send_to_vrchat {
+                                            if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound) {
+                                                eprintln!("Failed to send OSC message: {}", e);
+                                            }
+                                            self.last_osc_send = std::time::Instant::now();
+                                        }
+                                        message.editing = false;
+                                        self.config_changed = true;
+                                    }
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        if self.chat_options.live_editing && ui.button("X").clicked() {
+                                            message.editing = false;
+                                            message.edit_text = message.text.clone();
+                                            self.osc_preview = self.previous_osc_preview.clone();
+                                            if self.send_to_vrchat && !self.osc_preview.is_empty() {
+                                                let mut message_text = self.osc_preview.clone();
+                                                if self.extra_options.slim_mode {
+                                                    message_text.push_str("\u{0003}\u{001f}");
+                                                }
+                                                if let Err(e) = self.osc_client.send_chatbox_message(&message_text, false) {
+                                                    eprintln!("Failed to send OSC message: {}", e);
+                                                }
+                                                self.last_osc_send = std::time::Instant::now();
+                                            }
+                                            self.config_changed = true;
+                                        }
+                                        let edit_label = if self.chat_options.live_editing {
+                                            format!("Live Edit ({})", remaining_time)
+                                        } else {
+                                            format!("Edit ({})", remaining_time)
+                                        };
+                                        if ui.button(&edit_label).clicked() {
+                                            message.editing = !message.editing;
+                                            if !message.editing {
+                                                message.edit_text = message.text.clone();
+                                                self.osc_preview = self.previous_osc_preview.clone();
+                                                if self.send_to_vrchat && !self.osc_preview.is_empty() {
+                                                    let mut message_text = self.osc_preview.clone();
+                                                    if self.extra_options.slim_mode {
+                                                        message_text.push_str("\u{0003}\u{001f}");
+                                                    }
+                                                    if let Err(e) = self.osc_client.send_chatbox_message(&message_text, false) {
+                                                        eprintln!("Failed to send OSC message: {}", e);
+                                                    }
+                                                    self.last_osc_send = std::time::Instant::now();
+                                                }
+                                            }
+                                            self.config_changed = true;
+                                        }
+                                        if ui.button("Copy").clicked() {
+                                            if let Err(e) = self.clipboard.set_text(&message.text) {
+                                                eprintln!("Failed to copy to clipboard: {}", e);
+                                            }
+                                        }
+                                        if ui.button("Resend").clicked() {
+                                            let formatted_message = if self.chat_options.add_speech_bubble {
+                                                format!("🗨 {}", message.text)
+                                            } else {
+                                                message.text.clone()
+                                            };
+                                            message.sent_at_ms = now_ms;
+                                            self.osc_preview = formatted_message.clone();
+                                            if self.send_to_vrchat {
+                                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_resend && self.chat_options.play_fx_sound) {
+                                                    eprintln!("Failed to send OSC message: {}", e);
+                                                }
+                                                self.last_osc_send = std::time::Instant::now();
+                                            }
+                                            self.config_changed = true;
+                                        }
+                                    });
+                                } else {
+                                    ui.label(&message.text);
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        if self.chat_options.edit_messages {
+                                            let edit_label = if self.chat_options.live_editing && self.live_edit_enabled {
+                                                format!("Live Edit ({})", remaining_time)
+                                            } else {
+                                                format!("Edit ({})", remaining_time)
+                                            };
+                                            if ui.button(&edit_label).clicked() {
+                                                message.editing = true;
+                                                self.config_changed = true;
+                                            }
+                                        }
+                                        if ui.button("Copy").clicked() {
+                                            if let Err(e) = self.clipboard.set_text(&message.text) {
+                                                eprintln!("Failed to copy to clipboard: {}", e);
+                                            }
+                                        }
+                                        if ui.button("Resend").clicked() {
+                                            let formatted_message = if self.chat_options.add_speech_bubble {
+                                                format!("🗨 {}", message.text)
+                                            } else {
+                                                message.text.clone()
+                                            };
+                                            message.sent_at_ms = now_ms;
+                                            self.osc_preview = formatted_message.clone();
+                                            if self.send_to_vrchat {
+                                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_resend && self.chat_options.play_fx_sound) {
+                                                    eprintln!("Failed to send OSC message: {}", e);
+                                                }
+                                                self.last_osc_send = std::time::Instant::now();
+                                            }
+                                            self.config_changed = true;
+                                        }
+                                    });
+                                }
+                            });
+                            ui.separator();
+                            index += 1;
+                        }
+                    }
+                });
+                // Control buttons (Stop, Clear history) only when messages exist
+                if !self.chat_options.messages.is_empty() {
+                    ui.group(|ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("Clear history").clicked() {
+                                    self.chat_options.clear_messages();
+                                    self.config_changed = true;
+                                }
+                                if ui.button("Stop").clicked() {
+                                    self.osc_preview = self.previous_osc_preview.clone();
+                                    if self.send_to_vrchat && !self.osc_preview.is_empty() {
+                                        let mut message = self.osc_preview.clone();
+                                        if self.extra_options.slim_mode {
+                                            message.push_str("\u{0003}\u{001f}");
+                                        }
+                                        if let Err(e) = self.osc_client.send_chatbox_message(&message, false) {
+                                            eprintln!("Failed to send OSC message: {}", e);
+                                        }
+                                        self.last_osc_send = std::time::Instant::now();
+                                    }
+                                }
+                            });
+                        });
+                    });
                 }
-                self.chat_tab.message.clear();
-            }
+            });
         });
     }
     fn show_options_tab(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // Handle scrolling to a specific section
-            if let Some(scroll_id) = self.scroll_to.take() {
-                ui.ctx().request_repaint(); // Ensure a repaint to render widgets
-                ui.ctx().memory_mut(|mem| {
-                    mem.request_focus(scroll_id); // Request focus to scroll to the widget
-                });
-            }
             ui.heading("Options");
             // Status Options
             ui.group(|ui| {
@@ -640,249 +732,269 @@ impl App {
             });
         });
     }
-}
+    fn update_osc_preview(&mut self) {
+        self.status_module.update_cycle(&self.status_options);
+        let mut parts = Vec::new();
 
-// Implementations for individual option structs
-impl AppOptionsOptions {
-    pub fn show_app_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let mut response = ui.interact(
-            egui::Rect::EVERYTHING,
-            ui.id().with("app_options"),
-            egui::Sense::hover(),
-        );
-        ui.label("Local IP address");
-        ui.horizontal(|ui| {
-            response |= ui.text_edit_singleline(&mut self.app_options.osc_options.ip);
-            if ui.button("Default").clicked() {
-                self.app_options.osc_options.ip = "127.0.0.1".to_string();
-                response.mark_changed();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let mut active_chat_message = None;
+        for message in self.chat_options.messages.iter() {
+            if ((now_ms - message.sent_at_ms) / 1000) < self.chat_options.chat_timeout as u64 {
+                active_chat_message = Some(message);
+                break;
             }
-        });
-        ui.label("Port (outgoing)");
-        ui.horizontal(|ui| {
-            let mut port_str = self.app_options.osc_options.port.to_string();
-            response |= ui.text_edit_singleline(&mut port_str);
-            if let Ok(port) = port_str.parse() {
-                self.app_options.osc_options.port = port;
+        }
+
+        // Collect other module data first
+        if self.integrations_tab.personal_status_enabled {
+            if let Some(status) = self.status_module.get_current_message(&self.status_options) {
+                parts.push(status);
             }
-            if ui.button("Default").clicked() {
-                self.app_options.osc_options.port = 9000;
-                response.mark_changed();
+        }
+
+        if self.integrations_tab.component_stats_enabled {
+            let stats = self.components_module.get_formatted_stats(&self.component_stats);
+            if !stats.is_empty() {
+                parts.push(stats);
             }
-        });
-        ui.label("OSC update rate");
-        response |= ui.add(egui::Slider::new(&mut self.app_options.osc_options.update_rate, 1.6..=10.0).text("seconds"));
-        response |= ui.checkbox(
-            &mut self.app_options.osc_options.separate_lines,
-            "Separate integrations on a separate line instead of '|'",
-        );
-        ui.horizontal(|ui| {
-            if ui.button("Open config folder").clicked() {
-                let path = dirs::config_dir().unwrap().join("RustyChatBox");
-                Command::new("xdg-open").arg(path).spawn().ok();
-            }
-            if ui.button("Open logs").clicked() {
-                let path = dirs::config_dir().unwrap().join("RustyChatBox/app.log");
-                Command::new("xdg-open").arg(path).spawn().ok();
-            }
-        });
-        response
-    }
-}
-
-impl ChatOptions {
-    pub fn show_chatting_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let mut response = ui.interact(
-            egui::Rect::EVERYTHING,
-            ui.id().with("chat_options"),
-            egui::Sense::hover(),
-        );
-        ui.horizontal(|ui| {
-            ui.label("Chat timeout ");
-            response |= ui.add(egui::DragValue::new(&mut self.chat_timeout).speed(1.0));
-            ui.label(" seconds");
-        });
-        response |= ui.checkbox(&mut self.add_speech_bubble, "Add 🗨 as prefix for chat messages");
-        response |= ui.checkbox(&mut self.use_custom_idle_prefix, "Use your custom idle icon shuffle as a prefix for chat messages");
-        response |= ui.checkbox(&mut self.play_fx_sound, "Play FX sound for VRChat users when sending messages");
-        if self.play_fx_sound {
-            response |= ui.checkbox(&mut self.play_fx_resend, "Play FX when clicking resend");
         }
-        response |= ui.checkbox(&mut self.small_delay, "Small delay when sending a message");
-        if self.small_delay {
-            response |= ui.add(egui::Slider::new(&mut self.delay_seconds, 0.1..=2.0).text("seconds"));
-        }
-        response |= ui.checkbox(&mut self.override_display_time, "Override display time for chat messages");
-        if self.override_display_time {
-            response |= ui.add(egui::Slider::new(&mut self.display_time_seconds, 2.0..=10.0).text("seconds"));
-        }
-        response |= ui.checkbox(&mut self.edit_messages, "Edit chat messages");
-        if self.edit_messages {
-            response |= ui.checkbox(&mut self.live_editing, "Live editing");
-        }
-        response
-    }
-}
 
-impl ComponentStatsOptions {
-    pub fn show_component_stats_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let mut response = ui.interact(
-            egui::Rect::EVERYTHING,
-            ui.id().with("component_stats_options"),
-            egui::Sense::hover(),
-        );
-        response |= ui.checkbox(&mut self.show_cpu, "Show CPU stats");
-        response |= ui.checkbox(&mut self.cpu_display_model, "Display CPU model name");
-        if self.cpu_display_model {
-            ui.horizontal(|ui| {
-                ui.label("Custom CPU model:");
-                response |= ui.text_edit_singleline(self.cpu_custom_model.get_or_insert(String::new()));
-            });
-        }
-        response |= ui.checkbox(&mut self.cpu_round_usage, "Round CPU usage percentage");
-        response |= ui.checkbox(&mut self.cpu_stylized_uppercase, "Stylized uppercase letters for CPU");
-
-        response |= ui.checkbox(&mut self.show_gpu, "Show GPU stats");
-        response |= ui.checkbox(&mut self.gpu_display_model, "Display GPU model name");
-        if self.gpu_display_model {
-            ui.horizontal(|ui| {
-                ui.label("Custom GPU model:");
-                response |= ui.text_edit_singleline(self.gpu_custom_model.get_or_insert(String::new()));
-            });
-        }
-        response |= ui.checkbox(&mut self.gpu_round_usage, "Round GPU usage percentage");
-        response |= ui.checkbox(&mut self.gpu_stylized_uppercase, "Stylized uppercase letters for GPU");
-
-        response |= ui.checkbox(&mut self.show_vram, "Show VRAM stats");
-        response |= ui.checkbox(&mut self.vram_round_usage, "Round VRAM usage in GB");
-        response |= ui.checkbox(&mut self.vram_show_max, "Show max VRAM capacity");
-        response |= ui.checkbox(&mut self.vram_stylized_uppercase, "Stylized uppercase letters for VRAM");
-
-        response |= ui.checkbox(&mut self.show_ram, "Show RAM stats");
-        response |= ui.checkbox(&mut self.ram_round_usage, "Round RAM usage in GB");
-        response |= ui.checkbox(&mut self.ram_show_max, "Show max RAM capacity");
-        response |= ui.checkbox(&mut self.ram_stylized_uppercase, "Stylized uppercase letters for RAM");
-        response
-    }
-}
-
-impl ExtraOptions {
-    pub fn show_extra_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let mut response = ui.interact(
-            egui::Rect::EVERYTHING,
-            ui.id().with("extra_options"),
-            egui::Sense::hover(),
-        );
-        response |= ui.checkbox(&mut self.slim_mode, "Slim Mode");
-        response
-    }
-}
-
-impl MediaLinkOptions {
-    pub fn show_medialink_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let mut response = ui.interact(
-            egui::Rect::EVERYTHING,
-            ui.id().with("medialink_options"),
-            egui::Sense::hover(),
-        );
-        ui.label("Basic options");
-        ui.label(egui::RichText::new("Customize how your media looks in your chatbox").text_style(egui::TextStyle::Small));
-        response |= ui.checkbox(&mut self.use_music_note_prefix, "Change 'Listening to:' prefix to 🎵");
-        response |= ui.checkbox(&mut self.show_pause_emoji, "Show ⏸ when music is paused");
-        response |= ui.checkbox(&mut self.auto_switch_state, "Auto switch when media state changes");
-        response |= ui.checkbox(&mut self.auto_switch_session, "Auto switch when a new session is detected");
-        ui.horizontal(|ui| {
-            ui.label("Forget session after");
-            response |= ui.add(egui::DragValue::new(&mut self.forget_session_seconds).speed(1.0));
-            ui.label("seconds");
-        });
-        ui.label("Media progress bar");
-        ui.label(egui::RichText::new("Customize how your seek bar looks").text_style(egui::TextStyle::Small));
-        ui.label("Seekbar style");
-        let combo_response = egui::ComboBox::from_label("")
-            .selected_text(&self.seekbar_style)
-            .show_ui(ui, |ui| {
-                for style in ["Small numbers", "Custom", "None"].iter() {
-                    if ui.selectable_value(&mut self.seekbar_style, style.to_string(), *style).changed() {
-                        response.mark_changed();
-                    }
+        if self.integrations_tab.network_stats_enabled {
+            let interfaces = NetworkStats::get_interfaces();
+            if let Some(iface) = interfaces.first() {
+                let stats = NetworkStats::get_formatted_stats(&self.network_stats.config, &iface.name);
+                if !stats.is_empty() {
+                    parts.push(stats);
                 }
-            });
-        response |= combo_response.response;
-        response |= ui.checkbox(&mut self.show_progress, "Show media progress");
-        response
-    }
-}
-
-impl StatusOptions {
-    pub fn show_status_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let mut response = ui.interact(
-            egui::Rect::EVERYTHING,
-            ui.id().with("status_options"),
-            egui::Sense::hover(),
-        );
-        response |= ui.checkbox(&mut self.cycle_status, "Cycle status messages");
-        response |= ui.checkbox(&mut self.add_speech_bubble, "Add 🗨 as a prefix for the personal status");
-        response |= ui.checkbox(&mut self.enable_custom_prefix_shuffle, "Enable custom prefix icon shuffle");
-        if self.enable_custom_prefix_shuffle {
-            response |= ui.text_edit_singleline(&mut self.custom_prefixes);
+            }
         }
-        response |= ui.checkbox(&mut self.cycle_random, "Cycle status items in a random order");
-        ui.horizontal(|ui| {
-            ui.label("Cycle to the next every ");
-            response |= ui.add(egui::DragValue::new(&mut self.cycle_interval).speed(1.0));
-            ui.label(" seconds");
-        });
-        response
+        if self.integrations_tab.current_time_enabled {
+            let time = TimeModule::get_local_time(&self.time_options);
+            parts.push(time);
+        }
+        // Collect MediaLink data last to ensure it appears at the bottom
+        if self.integrations_tab.medialink_enabled {
+            if let Some(track) = self.media_module.get_formatted_track(&self.media_link) {
+                parts.push(track);
+            }
+        }
+        let separator = if self.app_options.app_options.osc_options.separate_lines {
+            "\n"
+        } else {
+            " | "
+        };
+        self.previous_osc_preview = parts.join(separator);
+        // Handle chat message priority
+        if let Some(message) = active_chat_message {
+            let message_text = if message.editing && self.chat_options.live_editing {
+                &message.edit_text
+            } else {
+                &message.text
+            };
+            let mut formatted_message = if self.chat_options.add_speech_bubble {
+                format!("🗨 {}", message_text)
+            } else {
+                message_text.clone()
+            };
+            if self.extra_options.slim_mode {
+                formatted_message.push_str("\u{0003}\u{001f}");
+            }
+            // Append module data (with MediaLink at bottom) to chat message if available
+            if !self.previous_osc_preview.is_empty() {
+                self.osc_preview = format!("{}\n{}", formatted_message, self.previous_osc_preview);
+            } else {
+                self.osc_preview = formatted_message;
+            }
+            if self.send_to_vrchat
+                && !self.osc_preview.is_empty()
+                && message.editing
+                && self.chat_options.live_editing
+                && self.chat_options.override_display_time
+                && self.last_osc_send.elapsed().as_secs_f32() >= self.chat_options.display_time_seconds
+            {
+                if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, self.chat_options.play_fx_sound) {
+                    eprintln!("Failed to send OSC message: {}", e);
+                }
+                self.last_osc_send = std::time::Instant::now();
+            }
+        } else {
+            // Use previous_osc_preview (with MediaLink at bottom) when no chat message
+            self.osc_preview = self.previous_osc_preview.clone();
+        }
+        // Send OSC data if needed
+        if self.send_to_vrchat
+            && self.chat_options.can_send()
+            && !self.osc_preview.is_empty()
+            && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate
+        {
+            if let Some(message) = self.chat_options.take_queued_message() {
+                let formatted_message = if self.chat_options.add_speech_bubble {
+                    format!("🗨 {}", message)
+                } else {
+                    message
+                };
+                // Append module data (with MediaLink at bottom) to queued message if available
+                if !self.previous_osc_preview.is_empty() {
+                    self.osc_preview = format!("{}\n{}", formatted_message, self.previous_osc_preview);
+                } else {
+                    self.osc_preview = formatted_message.clone();
+                }
+                if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, self.chat_options.play_fx_sound) {
+                    eprintln!("Failed to send OSC message: {}", e);
+                }
+                self.chat_options.add_message(formatted_message);
+                self.last_osc_send = std::time::Instant::now();
+            } else if !self.osc_preview.is_empty() {
+                let mut message = self.osc_preview.clone();
+                if self.extra_options.slim_mode {
+                    message.push_str("\u{0003}\u{001f}");
+                }
+                if let Err(e) = self.osc_client.send_chatbox_message(&message, self.chat_options.play_fx_sound) {
+                    eprintln!("Failed to send OSC message: {}", e);
+                }
+                self.last_osc_send = std::time::Instant::now();
+            }
+        }
+    }
+    pub fn save_config_if_needed(&mut self, config_path: &std::path::Path) {
+        if self.config_changed {
+            let config = Config {
+                app_options: self.app_options.app_options.clone(),
+                personal_status_enabled: self.integrations_tab.personal_status_enabled,
+                component_stats_enabled: self.integrations_tab.component_stats_enabled,
+                network_stats_enabled: self.integrations_tab.network_stats_enabled,
+                current_time_enabled: self.integrations_tab.current_time_enabled,
+                medialink_enabled: self.integrations_tab.medialink_enabled,
+                chat_options: self.chat_options.clone(),
+                component_stats_options: self.component_stats.clone(),
+                extra_options: self.extra_options.clone(),
+                media_link_options: self.media_link.clone(),
+                network_stats_options: self.network_stats.clone(),
+                status_options: self.status_options.clone(),
+                time_options: self.time_options.clone(),
+            };
+            if let Ok(json) = serde_json::to_string_pretty(&config) {
+                if let Err(e) = fs::write(config_path, json) {
+                    eprintln!("Failed to save config: {}", e);
+                }
+            }
+            self.config_changed = false;
+        }
     }
 }
-
-impl TimeOptions {
-    pub fn show_time_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let mut response = ui.interact(
-            egui::Rect::EVERYTHING,
-            ui.id().with("time_options"),
-            egui::Sense::hover(),
-        );
-        response |= ui.checkbox(&mut self.config.show_my_time_prefix, "Show 'My time:' in front of the time integration");
-        response |= ui.checkbox(&mut self.config.use_24_hour, "24-Hour time format");
-        response |= ui.checkbox(&mut self.config.use_system_culture, "Use current system culture for formatting time");
-        response |= ui.checkbox(&mut self.config.auto_dst, "Auto daylight savings time");
-        let mut use_custom_tz = self.config.custom_timezone.is_some();
-        response |= ui.checkbox(&mut use_custom_tz, "Custom time zone");
-        if use_custom_tz {
-            let mut tz_str = self.config.custom_timezone.clone().unwrap_or_default();
-            let combo_response = egui::ComboBox::from_label("")
-                .selected_text(&tz_str)
-                .show_ui(ui, |ui| {
-                    for tz in chrono_tz::TZ_VARIANTS.iter() {
-                        if ui.selectable_value(&mut tz_str, tz.to_string(), tz.to_string()).changed() {
-                            response.mark_changed();
-                        }
+impl eframe::App for App {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.update_osc_preview();
+        // Top panel with title, tabs, and VRChat toggle
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label("VRC OSC");
+                    ui.heading("RustyChatBox");
+                });
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add_space(20.0);
+                    // Integrations tab
+                    let mut button = egui::Button::new("Integrations").min_size(egui::vec2(100.0, 40.0));
+                    if self.current_tab == Tab::Integrations {
+                        button = button.fill(egui::Color32::from_rgb(50, 50, 100)); // Highlight color
+                    }
+                    if ui.add(button).clicked() {
+                        self.current_tab = Tab::Integrations;
+                    }
+                    // Status tab
+                    let mut button = egui::Button::new("Status").min_size(egui::vec2(100.0, 40.0));
+                    if self.current_tab == Tab::Status {
+                        button = button.fill(egui::Color32::from_rgb(50, 50, 100));
+                    }
+                    if ui.add(button).clicked() {
+                        self.current_tab = Tab::Status;
+                    }
+                    // Chatting tab
+                    let mut button = egui::Button::new("Chatting").min_size(egui::vec2(100.0, 40.0));
+                    if self.current_tab == Tab::Chatting {
+                        button = button.fill(egui::Color32::from_rgb(50, 50, 100));
+                    }
+                    if ui.add(button).clicked() {
+                        self.current_tab = Tab::Chatting;
+                    }
+                    // Options tab
+                    let mut button = egui::Button::new("Options").min_size(egui::vec2(100.0, 40.0));
+                    if self.current_tab == Tab::Options {
+                        button = button.fill(egui::Color32::from_rgb(50, 50, 100));
+                    }
+                    if ui.add(button).clicked() {
+                        self.current_tab = Tab::Options;
                     }
                 });
-            response |= combo_response.response;
-            self.config.custom_timezone = Some(tz_str);
-        } else {
-            self.config.custom_timezone = None;
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.checkbox(&mut self.send_to_vrchat, "Send to VRChat");
+                });
+            });
+        });
+        // Right side panel with OSC preview
+        egui::SidePanel::right("right_panel")
+            .resizable(false)
+            .default_width(300.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("Discord").clicked() {
+                        if let Err(e) = open::that("https://discord.gg/kzYjRnppFn") {
+                            eprintln!("Failed to open Discord URL: {}", e);
+                        }
+                    }
+                    if ui.button("GitHub").clicked() {
+                        if let Err(e) = open::that("https://github.com/Voiasis/RustyChatBox") {
+                            eprintln!("Failed to open GitHub URL: {}", e);
+                        }
+                    }
+                    ui.heading("Preview");
+                });
+                // Create a fixed-size group for the preview
+                let size = 300.0;
+                ui.allocate_ui(egui::vec2(size, size), |ui| {
+                    ui.group(|ui| {
+                        ui.set_min_size(egui::vec2(size, size));
+                        ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::TopDown), |ui| {
+                            ui.label(&self.osc_preview);
+                        });
+                    });
+                });
+                ui.separator();
+                if self.current_tab == Tab::Chatting && self.chat_options.edit_messages && self.chat_options.live_editing {
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut self.live_edit_enabled, "Live edit chat messages").changed() {
+                            self.config_changed = true;
+                        }
+                    });
+                }
+            });
+        // Central panel with tab content
+        match self.current_tab {
+            Tab::Integrations => {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    self.show_integrations_tab(ui);
+                });
+            }
+            Tab::Status => {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    self.show_status_tab(ui);
+                });
+            }
+            Tab::Chatting => {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    self.show_chatting_tab(ui);
+                });
+            }
+            Tab::Options => {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    self.show_options_tab(ui);
+                });
+            }
         }
-        response
+        ctx.request_repaint();
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Config {
-    pub app_options: AppOptions,
-    pub personal_status_enabled: bool,
-    pub component_stats_enabled: bool,
-    pub network_stats_enabled: bool,
-    pub current_time_enabled: bool,
-    pub medialink_enabled: bool,
-    pub chat_options: ChatOptions,
-    pub component_stats_options: ComponentStatsOptions,
-    pub extra_options: ExtraOptions,
-    pub media_link_options: MediaLinkOptions,
-    pub network_stats_options: NetworkStatsOptions,
-    pub status_options: StatusOptions,
-    pub time_options: TimeOptions,
 }
