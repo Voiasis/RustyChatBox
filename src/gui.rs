@@ -14,6 +14,7 @@ use crate::modules::{
 };
 use crate::osc::OscClient;
 use arboard::Clipboard;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub enum Tab {
     Integrations,
@@ -21,11 +22,13 @@ pub enum Tab {
     Chatting,
     Options,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ChatTab {
     pub message: String,
     pub is_focused: bool,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct IntegrationsTab {
     pub personal_status_enabled: bool,
@@ -34,10 +37,12 @@ pub struct IntegrationsTab {
     pub current_time_enabled: bool,
     pub medialink_enabled: bool,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StatusTab {
     pub new_message: String,
 }
+
 pub struct App {
     current_tab: Tab,
     app_options: AppOptionsOptions,
@@ -64,26 +69,28 @@ pub struct App {
     live_edit_enabled: bool,
     previous_osc_preview: String,
 }
+
 impl App {
     pub fn new(osc_client: OscClient, config: Config, clipboard: Clipboard) -> Self {
         let mut app_options = AppOptionsOptions {
             app_options: config.app_options,
             enabled: true,
         };
-        // Clamp update_rate to ensure it's within 1.6..=10.0
         app_options.app_options.osc_options.update_rate = app_options
             .app_options
             .osc_options
             .update_rate
             .clamp(1.6, 10.0);
 
+        let mut status_module = StatusModule::new();
+        for message in config.status_messages {
+            status_module.add_message(message);
+        }
+
         Self {
-            current_tab: Tab::Integrations,
+            current_tab: config.current_tab,
             app_options,
-            chat_tab: ChatTab {
-                message: String::new(),
-                is_focused: false,
-            },
+            chat_tab: config.chat_tab,
             chat_options: config.chat_options,
             component_stats: config.component_stats_options,
             extra_options: config.extra_options,
@@ -96,34 +103,32 @@ impl App {
             },
             media_link: config.media_link_options,
             network_stats: NetworkStatsOptions::new(config.network_stats_options.config),
-            status_tab: StatusTab {
-                new_message: String::new(),
-            },
+            status_tab: config.status_tab,
             status_options: config.status_options,
             time_options: config.time_options,
             osc_client,
             components_module: ComponentStatsModule::new(),
             media_module: MediaLinkModule::new(),
-            status_module: StatusModule::new(),
+            status_module,
             osc_preview: String::new(),
-            send_to_vrchat: false,
+            send_to_vrchat: config.send_to_vrchat,
             last_osc_send: std::time::Instant::now(),
             config_changed: false,
             pending_scroll_to: None,
             clipboard,
-            live_edit_enabled: false,
+            live_edit_enabled: config.live_edit_enabled,
             previous_osc_preview: String::new(),
         }
     }
+
     fn show_integrations_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("Integrations");
-    
+
         // Personal Status
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.heading("Personal Status");
                 if ui.button("⚙").clicked() {
-                    println!("DEBUG: Personal Status cogwheel clicked");
                     self.current_tab = Tab::Options;
                     self.pending_scroll_to = Some(egui::Id::new("status_options"));
                     self.status_options.enabled = true;
@@ -139,12 +144,12 @@ impl App {
             ui.label("Manage your personal status messages.");
         });
         ui.separator();
+
         // Component Stats
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.heading("Component Stats");
                 if ui.button("⚙").clicked() {
-                    println!("DEBUG: Component Stats cogwheel clicked");
                     self.current_tab = Tab::Options;
                     self.pending_scroll_to = Some(egui::Id::new("component_stats_options"));
                     self.component_stats.enabled = true;
@@ -176,12 +181,12 @@ impl App {
             }
         });
         ui.separator();
+
         // Network Stats
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.heading("Network Stats");
                 if ui.button("⚙").clicked() {
-                    println!("DEBUG: Network Stats cogwheel clicked");
                     self.current_tab = Tab::Options;
                     self.pending_scroll_to = Some(egui::Id::new("network_stats_options"));
                     self.network_stats.enabled = true;
@@ -206,12 +211,12 @@ impl App {
             }
         });
         ui.separator();
+
         // Current Time
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.heading("Current Time");
                 if ui.button("⚙").clicked() {
-                    println!("DEBUG: Current Time cogwheel clicked");
                     self.current_tab = Tab::Options;
                     self.pending_scroll_to = Some(egui::Id::new("time_options"));
                     self.time_options.config.enabled = true;
@@ -227,12 +232,12 @@ impl App {
             ui.label("Display the current local time and other time zones.");
         });
         ui.separator();
+
         // MediaLink
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.heading("MediaLink");
                 if ui.button("⚙").clicked() {
-                    println!("DEBUG: MediaLink cogwheel clicked");
                     self.current_tab = Tab::Options;
                     self.pending_scroll_to = Some(egui::Id::new("medialink_options"));
                     self.media_link.enabled = true;
@@ -279,12 +284,15 @@ impl App {
             }
         });
     }
+
     fn show_status_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("Status");
         ui.label("Manage personal status messages.");
         ui.horizontal(|ui| {
             ui.label("New status: ");
-            ui.text_edit_singleline(&mut self.status_tab.new_message);
+            if ui.text_edit_singleline(&mut self.status_tab.new_message).changed() {
+                self.config_changed = true;
+            }
             if ui.button("Add").clicked() && !self.status_tab.new_message.is_empty() {
                 self.status_module.add_message(self.status_tab.new_message.clone());
                 self.status_tab.new_message.clear();
@@ -311,6 +319,7 @@ impl App {
                 ui.label(msg);
                 if ui.button("Remove").clicked() {
                     to_remove = Some(i);
+                    self.config_changed = true;
                 }
             });
         }
@@ -319,6 +328,7 @@ impl App {
             self.config_changed = true;
         }
     }
+
     fn show_chatting_tab(&mut self, ui: &mut egui::Ui) {
         // Input section pinned to the bottom
         egui::TopBottomPanel::bottom("chat_input").show(ui.ctx(), |ui| {
@@ -405,6 +415,7 @@ impl App {
                 });
             });
         });
+
         // Message list and control buttons in a scrollable central panel
         egui::CentralPanel::default().show(ui.ctx(), |ui| {
             ui.heading("Chatting");
@@ -585,6 +596,7 @@ impl App {
             });
         });
     }
+
     fn show_options_tab(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading("Options");
@@ -733,42 +745,37 @@ impl App {
             });
         });
     }
+
     fn update_osc_preview(&mut self) {
         self.status_module.update_cycle(&self.status_options);
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-    
-        // Define MAX_LINE_WIDTH at the top for use throughout the method
+
         const MAX_LINE_WIDTH: usize = 27; // VRChat chatbox line width
-    
-        // Check if it's time to update preview and send OSC
+
         let should_update = self.send_to_vrchat
             && self.chat_options.can_send()
             && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate;
-    
-        // Check for live editing update
+
         let should_update_live = self.send_to_vrchat
             && self.chat_options.live_editing
             && self.chat_options.override_display_time
             && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate.max(self.chat_options.display_time_seconds);
-    
+
         let mut active_chat_message = None;
-    
-        // Only update preview if should_update or should_update_live
+
         if should_update || should_update_live {
             let mut parts = Vec::new();
-    
-            // Collect chat message
+
             for message in self.chat_options.messages.iter() {
                 if ((now_ms - message.sent_at_ms) / 1000) < self.chat_options.chat_timeout as u64 {
                     active_chat_message = Some(message);
                     break;
                 }
             }
-    
-            // Collect other module data
+
             if self.integrations_tab.personal_status_enabled {
                 if let Some(status) = self.status_module.get_current_message(&self.status_options) {
                     parts.push(status);
@@ -777,10 +784,8 @@ impl App {
             if self.integrations_tab.component_stats_enabled {
                 let stats = self.components_module.get_formatted_stats(&self.component_stats);
                 if !stats.is_empty() {
-                    // Split stats into individual components
                     let stat_parts: Vec<&str> = stats.split('|').collect();
                     let mut stat_pairs = Vec::new();
-                    // Group stats into pairs (CPU/GPU, VRAM/RAM)
                     for chunk in stat_parts.chunks(2) {
                         if chunk.len() == 2 {
                             stat_pairs.push(format!("{} | {}", chunk[0].trim(), chunk[1].trim()));
@@ -809,21 +814,18 @@ impl App {
                     parts.push(track);
                 }
             }
-    
-            // Build preview with line wrapping at 27 characters
+
             let separator = if self.app_options.app_options.osc_options.separate_lines {
                 "\n"
             } else {
                 " | "
             };
             let mut lines = Vec::new();
-    
-            // Process parts for previous_osc_preview
+
             for (i, part) in parts.iter().enumerate() {
                 let is_last_part = i == parts.len() - 1;
                 let part_text = part.trim();
-    
-                // If part is too long, split it
+
                 if part_text.len() > MAX_LINE_WIDTH {
                     let mut chars = part_text.chars().collect::<Vec<_>>();
                     while !chars.is_empty() {
@@ -834,8 +836,7 @@ impl App {
                 } else {
                     lines.push(part_text.to_string());
                 }
-    
-                // Add separator only if not the last part and separate_lines is disabled
+
                 if !is_last_part && !self.app_options.app_options.osc_options.separate_lines {
                     if lines.last_mut().map_or(true, |last| last.len() + separator.len() <= MAX_LINE_WIDTH) {
                         lines.last_mut().map(|last| *last += separator);
@@ -845,8 +846,7 @@ impl App {
                 }
             }
             self.previous_osc_preview = lines.join("\n");
-    
-            // Handle chat message priority
+
             if let Some(message) = active_chat_message {
                 let message_text = if message.editing && self.chat_options.live_editing {
                     &message.edit_text
@@ -858,7 +858,6 @@ impl App {
                 } else {
                     message_text.clone()
                 };
-                // Prepend chat message as its own line
                 if !self.previous_osc_preview.is_empty() {
                     self.osc_preview = format!("{}\n{}", formatted_message, self.previous_osc_preview);
                 } else {
@@ -868,8 +867,7 @@ impl App {
                 self.osc_preview = self.previous_osc_preview.clone();
             }
         }
-    
-        // Live editing send
+
         if should_update_live {
             if let Some(message) = active_chat_message {
                 if message.editing {
@@ -882,8 +880,7 @@ impl App {
                 }
             }
         }
-    
-        // Main OSC send
+
         if should_update && !self.osc_preview.is_empty() {
             if let Some(message) = self.chat_options.take_queued_message() {
                 let formatted_message = if self.chat_options.add_speech_bubble {
@@ -891,7 +888,6 @@ impl App {
                 } else {
                     message
                 };
-                // Rebuild osc_preview with queued message
                 let mut lines = Vec::new();
                 if formatted_message.len() > MAX_LINE_WIDTH {
                     let mut chars = formatted_message.chars().collect::<Vec<_>>();
@@ -907,7 +903,7 @@ impl App {
                     lines.push(self.previous_osc_preview.clone());
                 }
                 self.osc_preview = lines.join("\n");
-    
+
                 if self.send_to_vrchat {
                     if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, self.chat_options.play_fx_sound, self.extra_options.slim_mode) {
                         eprintln!("Failed to send OSC message: {}", e);
@@ -923,6 +919,7 @@ impl App {
             }
         }
     }
+
     pub fn save_config_if_needed(&mut self, config_path: &std::path::Path) {
         if self.config_changed {
             let config = Config {
@@ -933,12 +930,18 @@ impl App {
                 current_time_enabled: self.integrations_tab.current_time_enabled,
                 medialink_enabled: self.integrations_tab.medialink_enabled,
                 chat_options: self.chat_options.clone(),
+                chat_tab: self.chat_tab.clone(),
                 component_stats_options: self.component_stats.clone(),
                 extra_options: self.extra_options.clone(),
                 media_link_options: self.media_link.clone(),
                 network_stats_options: self.network_stats.clone(),
                 status_options: self.status_options.clone(),
+                status_tab: self.status_tab.clone(),
+                status_messages: self.status_module.messages.clone(),
                 time_options: self.time_options.clone(),
+                current_tab: self.current_tab.clone(),
+                send_to_vrchat: self.send_to_vrchat,
+                live_edit_enabled: self.live_edit_enabled,
             };
             if let Ok(json) = serde_json::to_string_pretty(&config) {
                 if let Err(e) = fs::write(config_path, json) {
@@ -949,6 +952,7 @@ impl App {
         }
     }
 }
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_osc_preview();
@@ -964,10 +968,11 @@ impl eframe::App for App {
                     // Integrations tab
                     let mut button = egui::Button::new("Integrations").min_size(egui::vec2(100.0, 40.0));
                     if self.current_tab == Tab::Integrations {
-                        button = button.fill(egui::Color32::from_rgb(50, 50, 100)); // Highlight color
+                        button = button.fill(egui::Color32::from_rgb(50, 50, 100));
                     }
                     if ui.add(button).clicked() {
                         self.current_tab = Tab::Integrations;
+                        self.config_changed = true;
                     }
                     // Status tab
                     let mut button = egui::Button::new("Status").min_size(egui::vec2(100.0, 40.0));
@@ -976,6 +981,7 @@ impl eframe::App for App {
                     }
                     if ui.add(button).clicked() {
                         self.current_tab = Tab::Status;
+                        self.config_changed = true;
                     }
                     // Chatting tab
                     let mut button = egui::Button::new("Chatting").min_size(egui::vec2(100.0, 40.0));
@@ -984,6 +990,7 @@ impl eframe::App for App {
                     }
                     if ui.add(button).clicked() {
                         self.current_tab = Tab::Chatting;
+                        self.config_changed = true;
                     }
                     // Options tab
                     let mut button = egui::Button::new("Options").min_size(egui::vec2(100.0, 40.0));
@@ -992,13 +999,17 @@ impl eframe::App for App {
                     }
                     if ui.add(button).clicked() {
                         self.current_tab = Tab::Options;
+                        self.config_changed = true;
                     }
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.checkbox(&mut self.send_to_vrchat, "Send to VRChat");
+                    if ui.checkbox(&mut self.send_to_vrchat, "Send to VRChat").changed() {
+                        self.config_changed = true;
+                    }
                 });
             });
         });
+
         // Right side panel with OSC preview
         egui::SidePanel::right("right_panel")
             .resizable(false)
@@ -1036,6 +1047,7 @@ impl eframe::App for App {
                     });
                 }
             });
+
         // Central panel with tab content
         match self.current_tab {
             Tab::Integrations => {
