@@ -71,11 +71,11 @@ impl StatusModule {
             }
         }
     }
-    pub fn edit_message(&mut self, index: usize, new_message: String) {
+    /*pub fn edit_message(&mut self, index: usize, new_message: String) {
         if index < self.messages.len() {
             self.messages[index] = new_message;
         }
-    }
+    }*/
     pub fn get_current_message(&self, options: &StatusOptions) -> Option<String> {
         if self.messages.is_empty() {
             return None;

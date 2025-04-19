@@ -50,11 +50,11 @@ impl NetworkStats {
             .map_err(|e| eprintln!("Failed to get network interfaces: {}", e))
             .unwrap_or_default()
     }
-    pub fn get_interface_stats(interface_name: &str) -> Option<NetworkInterface> {
+    /*pub fn get_interface_stats(interface_name: &str) -> Option<NetworkInterface> {
         Self::get_interfaces()
             .into_iter()
             .find(|iface| iface.name == interface_name)
-    }
+    }*/
     pub fn get_download_speed(_interface_name: &str) -> Option<f64> {
         None
     }

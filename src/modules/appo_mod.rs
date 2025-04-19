@@ -1,5 +1,6 @@
 use serde::{Serialize, Deserialize};
 use eframe::egui;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OscOptions {
     pub ip: String,
@@ -7,27 +8,31 @@ pub struct OscOptions {
     pub update_rate: f32,
     pub separate_lines: bool,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AppOptions {
     pub osc_options: OscOptions,
 }
+
 impl AppOptions {
     pub fn new() -> Self {
         Self {
             osc_options: OscOptions {
                 ip: "127.0.0.1".to_string(),
                 port: 9000,
-                update_rate: 0.1,
+                update_rate: 1.6, // Changed from 0.1
                 separate_lines: false,
             },
         }
     }
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AppOptionsOptions {
     pub app_options: AppOptions,
     pub enabled: bool,
 }
+
 impl AppOptionsOptions {
     pub fn show_app_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut response = ui.interact(
@@ -46,7 +51,8 @@ impl AppOptionsOptions {
         ui.horizontal(|ui| {
             ui.label("Update Rate: ");
             response |= ui.add(
-                egui::Slider::new(&mut self.app_options.osc_options.update_rate, 0.01..=1.0)
+                egui::Slider::new(&mut self.app_options.osc_options.update_rate, 1.6..=10.0) // Changed from 0.01..=1.0
+                    .step_by(0.1)
                     .text("seconds"),
             );
         });

@@ -62,9 +62,9 @@ impl TimeOptions {
 }
 pub struct TimeModule;
 impl TimeModule {
-    pub fn new() -> Self {
+    /*pub fn new() -> Self {
         Self
-    }
+    }*/
     pub fn get_local_time(options: &TimeOptions) -> String {
         let now = Local::now();
         let time_str = match &options.config.custom_timezone {

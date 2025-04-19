@@ -59,7 +59,6 @@ pub struct App {
     send_to_vrchat: bool,
     last_osc_send: std::time::Instant,
     config_changed: bool,
-    scroll_to: Option<egui::Id>,
     pending_scroll_to: Option<egui::Id>,
     clipboard: Clipboard,
     live_edit_enabled: bool,
@@ -67,12 +66,20 @@ pub struct App {
 }
 impl App {
     pub fn new(osc_client: OscClient, config: Config, clipboard: Clipboard) -> Self {
+        let mut app_options = AppOptionsOptions {
+            app_options: config.app_options,
+            enabled: true,
+        };
+        // Clamp update_rate to ensure it's within 1.6..=10.0
+        app_options.app_options.osc_options.update_rate = app_options
+            .app_options
+            .osc_options
+            .update_rate
+            .clamp(1.6, 10.0);
+
         Self {
             current_tab: Tab::Integrations,
-            app_options: AppOptionsOptions {
-                app_options: config.app_options,
-                enabled: true,
-            },
+            app_options,
             chat_tab: ChatTab {
                 message: String::new(),
                 is_focused: false,
@@ -102,7 +109,6 @@ impl App {
             send_to_vrchat: false,
             last_osc_send: std::time::Instant::now(),
             config_changed: false,
-            scroll_to: None,
             pending_scroll_to: None,
             clipboard,
             live_edit_enabled: false,
@@ -288,8 +294,11 @@ impl App {
         if let Some(current) = self.status_module.get_current_message(&self.status_options) {
             ui.label(format!("Current status: {}", current));
             if ui.button("Send to OSC").clicked() {
-                if let Err(e) = self.osc_client.send_chatbox_message(current.as_str(), false) {
-                    eprintln!("Failed to send status: {}", e);
+                if self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate {
+                    if let Err(e) = self.osc_client.send_chatbox_message(current.as_str(), false, self.extra_options.slim_mode) {
+                        eprintln!("Failed to send status: {}", e);
+                    }
+                    self.last_osc_send = std::time::Instant::now();
                 }
             }
         } else {
@@ -335,7 +344,7 @@ impl App {
                     }
                     if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.chat_tab.message.is_empty() && self.chat_tab.message.len() <= 140 {
                         let message = self.chat_tab.message.clone();
-                        if self.chat_options.can_send() {
+                        if self.chat_options.can_send() && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate {
                             let formatted_message = if self.chat_options.add_speech_bubble {
                                 format!("🗨 {}", message)
                             } else {
@@ -343,7 +352,7 @@ impl App {
                             };
                             self.osc_preview = formatted_message.clone();
                             if self.send_to_vrchat {
-                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound) {
+                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound, self.extra_options.slim_mode) {
                                     eprintln!("Failed to send OSC message: {}", e);
                                 }
                                 self.last_osc_send = std::time::Instant::now();
@@ -369,7 +378,7 @@ impl App {
                     }
                     if ui.button("Send").clicked() && !self.chat_tab.message.is_empty() && self.chat_tab.message.len() <= 140 {
                         let message = self.chat_tab.message.clone();
-                        if self.chat_options.can_send() {
+                        if self.chat_options.can_send() && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate {
                             let formatted_message = if self.chat_options.add_speech_bubble {
                                 format!("🗨 {}", message)
                             } else {
@@ -377,7 +386,7 @@ impl App {
                             };
                             self.osc_preview = formatted_message.clone();
                             if self.send_to_vrchat {
-                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound) {
+                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound, self.extra_options.slim_mode) {
                                     eprintln!("Failed to send OSC message: {}", e);
                                 }
                                 self.last_osc_send = std::time::Instant::now();
@@ -440,8 +449,8 @@ impl App {
                                             message.text.clone()
                                         };
                                         self.osc_preview = formatted_message.clone();
-                                        if self.send_to_vrchat {
-                                            if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound) {
+                                        if self.send_to_vrchat && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate {
+                                            if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_sound, self.extra_options.slim_mode) {
                                                 eprintln!("Failed to send OSC message: {}", e);
                                             }
                                             self.last_osc_send = std::time::Instant::now();
@@ -454,12 +463,8 @@ impl App {
                                             message.editing = false;
                                             message.edit_text = message.text.clone();
                                             self.osc_preview = self.previous_osc_preview.clone();
-                                            if self.send_to_vrchat && !self.osc_preview.is_empty() {
-                                                let mut message_text = self.osc_preview.clone();
-                                                if self.extra_options.slim_mode {
-                                                    message_text.push_str("\u{0003}\u{001f}");
-                                                }
-                                                if let Err(e) = self.osc_client.send_chatbox_message(&message_text, false) {
+                                            if self.send_to_vrchat && !self.osc_preview.is_empty() && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate {
+                                                if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, false, self.extra_options.slim_mode) {
                                                     eprintln!("Failed to send OSC message: {}", e);
                                                 }
                                                 self.last_osc_send = std::time::Instant::now();
@@ -476,12 +481,8 @@ impl App {
                                             if !message.editing {
                                                 message.edit_text = message.text.clone();
                                                 self.osc_preview = self.previous_osc_preview.clone();
-                                                if self.send_to_vrchat && !self.osc_preview.is_empty() {
-                                                    let mut message_text = self.osc_preview.clone();
-                                                    if self.extra_options.slim_mode {
-                                                        message_text.push_str("\u{0003}\u{001f}");
-                                                    }
-                                                    if let Err(e) = self.osc_client.send_chatbox_message(&message_text, false) {
+                                                if self.send_to_vrchat && !self.osc_preview.is_empty() && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate {
+                                                    if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, false, self.extra_options.slim_mode) {
                                                         eprintln!("Failed to send OSC message: {}", e);
                                                     }
                                                     self.last_osc_send = std::time::Instant::now();
@@ -495,20 +496,22 @@ impl App {
                                             }
                                         }
                                         if ui.button("Resend").clicked() {
-                                            let formatted_message = if self.chat_options.add_speech_bubble {
-                                                format!("🗨 {}", message.text)
-                                            } else {
-                                                message.text.clone()
-                                            };
-                                            message.sent_at_ms = now_ms;
-                                            self.osc_preview = formatted_message.clone();
-                                            if self.send_to_vrchat {
-                                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_resend && self.chat_options.play_fx_sound) {
-                                                    eprintln!("Failed to send OSC message: {}", e);
+                                            if self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate {
+                                                let formatted_message = if self.chat_options.add_speech_bubble {
+                                                    format!("🗨 {}", message.text)
+                                                } else {
+                                                    message.text.clone()
+                                                };
+                                                message.sent_at_ms = now_ms;
+                                                self.osc_preview = formatted_message.clone();
+                                                if self.send_to_vrchat {
+                                                    if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_resend && self.chat_options.play_fx_sound, self.extra_options.slim_mode) {
+                                                        eprintln!("Failed to send OSC message: {}", e);
+                                                    }
+                                                    self.last_osc_send = std::time::Instant::now();
                                                 }
-                                                self.last_osc_send = std::time::Instant::now();
+                                                self.config_changed = true;
                                             }
-                                            self.config_changed = true;
                                         }
                                     });
                                 } else {
@@ -531,20 +534,22 @@ impl App {
                                             }
                                         }
                                         if ui.button("Resend").clicked() {
-                                            let formatted_message = if self.chat_options.add_speech_bubble {
-                                                format!("🗨 {}", message.text)
-                                            } else {
-                                                message.text.clone()
-                                            };
-                                            message.sent_at_ms = now_ms;
-                                            self.osc_preview = formatted_message.clone();
-                                            if self.send_to_vrchat {
-                                                if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_resend && self.chat_options.play_fx_sound) {
-                                                    eprintln!("Failed to send OSC message: {}", e);
+                                            if self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate {
+                                                let formatted_message = if self.chat_options.add_speech_bubble {
+                                                    format!("🗨 {}", message.text)
+                                                } else {
+                                                    message.text.clone()
+                                                };
+                                                message.sent_at_ms = now_ms;
+                                                self.osc_preview = formatted_message.clone();
+                                                if self.send_to_vrchat {
+                                                    if let Err(e) = self.osc_client.send_chatbox_message(&formatted_message, self.chat_options.play_fx_resend && self.chat_options.play_fx_sound, self.extra_options.slim_mode) {
+                                                        eprintln!("Failed to send OSC message: {}", e);
+                                                    }
+                                                    self.last_osc_send = std::time::Instant::now();
                                                 }
-                                                self.last_osc_send = std::time::Instant::now();
+                                                self.config_changed = true;
                                             }
-                                            self.config_changed = true;
                                         }
                                     });
                                 }
@@ -566,12 +571,8 @@ impl App {
                                 }
                                 if ui.button("Stop").clicked() {
                                     self.osc_preview = self.previous_osc_preview.clone();
-                                    if self.send_to_vrchat && !self.osc_preview.is_empty() {
-                                        let mut message = self.osc_preview.clone();
-                                        if self.extra_options.slim_mode {
-                                            message.push_str("\u{0003}\u{001f}");
-                                        }
-                                        if let Err(e) = self.osc_client.send_chatbox_message(&message, false) {
+                                    if self.send_to_vrchat && !self.osc_preview.is_empty() && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate {
+                                        if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, false, self.extra_options.slim_mode) {
                                             eprintln!("Failed to send OSC message: {}", e);
                                         }
                                         self.last_osc_send = std::time::Instant::now();
@@ -734,125 +735,188 @@ impl App {
     }
     fn update_osc_preview(&mut self) {
         self.status_module.update_cycle(&self.status_options);
-        let mut parts = Vec::new();
-
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        let mut active_chat_message = None;
-        for message in self.chat_options.messages.iter() {
-            if ((now_ms - message.sent_at_ms) / 1000) < self.chat_options.chat_timeout as u64 {
-                active_chat_message = Some(message);
-                break;
-            }
-        }
-
-        // Collect other module data first
-        if self.integrations_tab.personal_status_enabled {
-            if let Some(status) = self.status_module.get_current_message(&self.status_options) {
-                parts.push(status);
-            }
-        }
-
-        if self.integrations_tab.component_stats_enabled {
-            let stats = self.components_module.get_formatted_stats(&self.component_stats);
-            if !stats.is_empty() {
-                parts.push(stats);
-            }
-        }
-
-        if self.integrations_tab.network_stats_enabled {
-            let interfaces = NetworkStats::get_interfaces();
-            if let Some(iface) = interfaces.first() {
-                let stats = NetworkStats::get_formatted_stats(&self.network_stats.config, &iface.name);
-                if !stats.is_empty() {
-                    parts.push(stats);
-                }
-            }
-        }
-        if self.integrations_tab.current_time_enabled {
-            let time = TimeModule::get_local_time(&self.time_options);
-            parts.push(time);
-        }
-        // Collect MediaLink data last to ensure it appears at the bottom
-        if self.integrations_tab.medialink_enabled {
-            if let Some(track) = self.media_module.get_formatted_track(&self.media_link) {
-                parts.push(track);
-            }
-        }
-        let separator = if self.app_options.app_options.osc_options.separate_lines {
-            "\n"
-        } else {
-            " | "
-        };
-        self.previous_osc_preview = parts.join(separator);
-        // Handle chat message priority
-        if let Some(message) = active_chat_message {
-            let message_text = if message.editing && self.chat_options.live_editing {
-                &message.edit_text
-            } else {
-                &message.text
-            };
-            let mut formatted_message = if self.chat_options.add_speech_bubble {
-                format!("🗨 {}", message_text)
-            } else {
-                message_text.clone()
-            };
-            if self.extra_options.slim_mode {
-                formatted_message.push_str("\u{0003}\u{001f}");
-            }
-            // Append module data (with MediaLink at bottom) to chat message if available
-            if !self.previous_osc_preview.is_empty() {
-                self.osc_preview = format!("{}\n{}", formatted_message, self.previous_osc_preview);
-            } else {
-                self.osc_preview = formatted_message;
-            }
-            if self.send_to_vrchat
-                && !self.osc_preview.is_empty()
-                && message.editing
-                && self.chat_options.live_editing
-                && self.chat_options.override_display_time
-                && self.last_osc_send.elapsed().as_secs_f32() >= self.chat_options.display_time_seconds
-            {
-                if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, self.chat_options.play_fx_sound) {
-                    eprintln!("Failed to send OSC message: {}", e);
-                }
-                self.last_osc_send = std::time::Instant::now();
-            }
-        } else {
-            // Use previous_osc_preview (with MediaLink at bottom) when no chat message
-            self.osc_preview = self.previous_osc_preview.clone();
-        }
-        // Send OSC data if needed
-        if self.send_to_vrchat
+    
+        // Define MAX_LINE_WIDTH at the top for use throughout the method
+        const MAX_LINE_WIDTH: usize = 27; // VRChat chatbox line width
+    
+        // Check if it's time to update preview and send OSC
+        let should_update = self.send_to_vrchat
             && self.chat_options.can_send()
-            && !self.osc_preview.is_empty()
-            && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate
-        {
+            && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate;
+    
+        // Check for live editing update
+        let should_update_live = self.send_to_vrchat
+            && self.chat_options.live_editing
+            && self.chat_options.override_display_time
+            && self.last_osc_send.elapsed().as_secs_f32() >= self.app_options.app_options.osc_options.update_rate.max(self.chat_options.display_time_seconds);
+    
+        let mut active_chat_message = None;
+    
+        // Only update preview if should_update or should_update_live
+        if should_update || should_update_live {
+            let mut parts = Vec::new();
+    
+            // Collect chat message
+            for message in self.chat_options.messages.iter() {
+                if ((now_ms - message.sent_at_ms) / 1000) < self.chat_options.chat_timeout as u64 {
+                    active_chat_message = Some(message);
+                    break;
+                }
+            }
+    
+            // Collect other module data
+            if self.integrations_tab.personal_status_enabled {
+                if let Some(status) = self.status_module.get_current_message(&self.status_options) {
+                    parts.push(status);
+                }
+            }
+            if self.integrations_tab.component_stats_enabled {
+                let stats = self.components_module.get_formatted_stats(&self.component_stats);
+                if !stats.is_empty() {
+                    // Split stats into individual components
+                    let stat_parts: Vec<&str> = stats.split('|').collect();
+                    let mut stat_pairs = Vec::new();
+                    // Group stats into pairs (CPU/GPU, VRAM/RAM)
+                    for chunk in stat_parts.chunks(2) {
+                        if chunk.len() == 2 {
+                            stat_pairs.push(format!("{} | {}", chunk[0].trim(), chunk[1].trim()));
+                        } else {
+                            stat_pairs.push(chunk[0].trim().to_string());
+                        }
+                    }
+                    parts.extend(stat_pairs);
+                }
+            }
+            if self.integrations_tab.network_stats_enabled {
+                let interfaces = NetworkStats::get_interfaces();
+                if let Some(iface) = interfaces.first() {
+                    let stats = NetworkStats::get_formatted_stats(&self.network_stats.config, &iface.name);
+                    if !stats.is_empty() {
+                        parts.push(stats);
+                    }
+                }
+            }
+            if self.integrations_tab.current_time_enabled {
+                let time = TimeModule::get_local_time(&self.time_options);
+                parts.push(time);
+            }
+            if self.integrations_tab.medialink_enabled {
+                if let Some(track) = self.media_module.get_formatted_track(&self.media_link) {
+                    parts.push(track);
+                }
+            }
+    
+            // Build preview with line wrapping at 27 characters
+            let separator = if self.app_options.app_options.osc_options.separate_lines {
+                "\n"
+            } else {
+                " | "
+            };
+            let mut lines = Vec::new();
+    
+            // Process parts for previous_osc_preview
+            for (i, part) in parts.iter().enumerate() {
+                let is_last_part = i == parts.len() - 1;
+                let part_text = part.trim();
+    
+                // If part is too long, split it
+                if part_text.len() > MAX_LINE_WIDTH {
+                    let mut chars = part_text.chars().collect::<Vec<_>>();
+                    while !chars.is_empty() {
+                        let take_count = MAX_LINE_WIDTH.min(chars.len());
+                        let chunk: String = chars.drain(..take_count).collect();
+                        lines.push(chunk);
+                    }
+                } else {
+                    lines.push(part_text.to_string());
+                }
+    
+                // Add separator only if not the last part and separate_lines is disabled
+                if !is_last_part && !self.app_options.app_options.osc_options.separate_lines {
+                    if lines.last_mut().map_or(true, |last| last.len() + separator.len() <= MAX_LINE_WIDTH) {
+                        lines.last_mut().map(|last| *last += separator);
+                    } else {
+                        lines.push(separator.to_string());
+                    }
+                }
+            }
+            self.previous_osc_preview = lines.join("\n");
+    
+            // Handle chat message priority
+            if let Some(message) = active_chat_message {
+                let message_text = if message.editing && self.chat_options.live_editing {
+                    &message.edit_text
+                } else {
+                    &message.text
+                };
+                let formatted_message = if self.chat_options.add_speech_bubble {
+                    format!("🗨 {}", message_text)
+                } else {
+                    message_text.clone()
+                };
+                // Prepend chat message as its own line
+                if !self.previous_osc_preview.is_empty() {
+                    self.osc_preview = format!("{}\n{}", formatted_message, self.previous_osc_preview);
+                } else {
+                    self.osc_preview = formatted_message;
+                }
+            } else {
+                self.osc_preview = self.previous_osc_preview.clone();
+            }
+        }
+    
+        // Live editing send
+        if should_update_live {
+            if let Some(message) = active_chat_message {
+                if message.editing {
+                    if self.send_to_vrchat && !self.osc_preview.is_empty() {
+                        if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, self.chat_options.play_fx_sound, self.extra_options.slim_mode) {
+                            eprintln!("Failed to send OSC message: {}", e);
+                        }
+                        self.last_osc_send = std::time::Instant::now();
+                    }
+                }
+            }
+        }
+    
+        // Main OSC send
+        if should_update && !self.osc_preview.is_empty() {
             if let Some(message) = self.chat_options.take_queued_message() {
                 let formatted_message = if self.chat_options.add_speech_bubble {
                     format!("🗨 {}", message)
                 } else {
                     message
                 };
-                // Append module data (with MediaLink at bottom) to queued message if available
-                if !self.previous_osc_preview.is_empty() {
-                    self.osc_preview = format!("{}\n{}", formatted_message, self.previous_osc_preview);
+                // Rebuild osc_preview with queued message
+                let mut lines = Vec::new();
+                if formatted_message.len() > MAX_LINE_WIDTH {
+                    let mut chars = formatted_message.chars().collect::<Vec<_>>();
+                    while !chars.is_empty() {
+                        let take_count = MAX_LINE_WIDTH.min(chars.len());
+                        let chunk: String = chars.drain(..take_count).collect();
+                        lines.push(chunk);
+                    }
                 } else {
-                    self.osc_preview = formatted_message.clone();
+                    lines.push(formatted_message.clone());
                 }
-                if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, self.chat_options.play_fx_sound) {
-                    eprintln!("Failed to send OSC message: {}", e);
+                if !self.previous_osc_preview.is_empty() {
+                    lines.push(self.previous_osc_preview.clone());
+                }
+                self.osc_preview = lines.join("\n");
+    
+                if self.send_to_vrchat {
+                    if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, self.chat_options.play_fx_sound, self.extra_options.slim_mode) {
+                        eprintln!("Failed to send OSC message: {}", e);
+                    }
+                    self.last_osc_send = std::time::Instant::now();
                 }
                 self.chat_options.add_message(formatted_message);
-                self.last_osc_send = std::time::Instant::now();
-            } else if !self.osc_preview.is_empty() {
-                let mut message = self.osc_preview.clone();
-                if self.extra_options.slim_mode {
-                    message.push_str("\u{0003}\u{001f}");
-                }
-                if let Err(e) = self.osc_client.send_chatbox_message(&message, self.chat_options.play_fx_sound) {
+            } else if self.send_to_vrchat {
+                if let Err(e) = self.osc_client.send_chatbox_message(&self.osc_preview, self.chat_options.play_fx_sound, self.extra_options.slim_mode) {
                     eprintln!("Failed to send OSC message: {}", e);
                 }
                 self.last_osc_send = std::time::Instant::now();
