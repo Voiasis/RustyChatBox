@@ -12,17 +12,6 @@ pub struct StatusOptions {
     pub add_speech_bubble: bool,
 }
 impl StatusOptions {
-    pub fn new() -> Self {
-        Self {
-            enabled: true,
-            cycle_status: false,
-            cycle_interval: 60,
-            cycle_random: false,
-            enable_custom_prefix_shuffle: false,
-            custom_prefixes: String::new(),
-            add_speech_bubble: false,
-        }
-    }
     pub fn show_status_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut response = ui.interact(
             egui::Rect::EVERYTHING,

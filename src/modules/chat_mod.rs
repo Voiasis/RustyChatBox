@@ -27,25 +27,6 @@ pub struct ChatOptions {
     pub queued_message: Option<String>,
 }
 impl ChatOptions {
-    pub fn new() -> Self {
-        Self {
-            enabled: true,
-            chat_timeout: 30,
-            add_speech_bubble: false,
-            use_custom_idle_prefix: false,
-            play_fx_sound: false,
-            play_fx_resend: false,
-            small_delay: false,
-            delay_seconds: 0.5,
-            override_display_time: false,
-            display_time_seconds: 5.0,
-            edit_messages: false,
-            live_editing: false,
-            messages: VecDeque::new(),
-            last_send_ms: None,
-            queued_message: None,
-        }
-    }
     pub fn add_message(&mut self, text: String) {
         if self.messages.len() >= 10 {
             self.messages.pop_front();

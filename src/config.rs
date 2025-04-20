@@ -1,15 +1,16 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::collections::VecDeque;
 use crate::modules::{
-    appo_mod::AppOptions,
-    chat_mod::ChatOptions,
+    appo_mod::{AppOptions, OscOptions},
     comp_mod::ComponentStatsOptions,
     extr_mod::ExtraOptions,
+    chat_mod::ChatOptions,
     medi_mod::MediaLinkOptions,
     netw_mod::{NetworkOptions, NetworkStatsOptions},
     stat_mod::StatusOptions,
-    time_mod::TimeOptions,
+    time_mod::{TimeConfig, TimeOptions},
 };
 use crate::gui::{ChatTab, StatusTab, Tab};
 
@@ -55,29 +56,104 @@ impl Config {
             }
         }
         let config = Config {
-            app_options: AppOptions::new(),
+            app_options: AppOptions {
+                osc_options: OscOptions {
+                    ip: "127.0.0.1".to_string(),
+                    port: 9000,
+                    update_rate: 1.6,
+                    separate_lines: true,
+                },
+            },
             personal_status_enabled: true,
             component_stats_enabled: true,
-            network_stats_enabled: true,
+            network_stats_enabled: false,
             current_time_enabled: true,
             medialink_enabled: true,
-            chat_options: ChatOptions::new(),
+            chat_options: ChatOptions {
+                enabled: true,
+                chat_timeout: 30,
+                add_speech_bubble: true,
+                use_custom_idle_prefix: false,
+                play_fx_sound: false,
+                play_fx_resend: false,
+                small_delay: true,
+                delay_seconds: 0.5,
+                override_display_time: false,
+                display_time_seconds: 5.0,
+                edit_messages: false,
+                live_editing: false,
+                messages: VecDeque::new(),
+                last_send_ms: Some(1745101212543),
+                queued_message: None,
+            },
             chat_tab: ChatTab {
                 message: String::new(),
                 is_focused: false,
             },
-            component_stats_options: ComponentStatsOptions::new(),
-            extra_options: ExtraOptions::new(),
-            media_link_options: MediaLinkOptions::new(),
-            network_stats_options: NetworkStatsOptions::new(default_network_options),
-            status_options: StatusOptions::new(),
+            component_stats_options: ComponentStatsOptions {
+                enabled: true,
+                show_cpu: true,
+                show_gpu: true,
+                show_vram: false,
+                show_ram: false,
+                cpu_display_model: false,
+                cpu_custom_model: None,
+                cpu_round_usage: true,
+                cpu_stylized_uppercase: false,
+                gpu_display_model: false,
+                gpu_custom_model: None,
+                gpu_round_usage: true,
+                gpu_stylized_uppercase: false,
+                vram_round_usage: false,
+                vram_show_max: false,
+                vram_stylized_uppercase: false,
+                ram_round_usage: false,
+                ram_show_max: false,
+                ram_stylized_uppercase: false,
+            },
+            extra_options: ExtraOptions {
+                enabled: true,
+                slim_mode: true,
+            },
+            media_link_options: MediaLinkOptions {
+                enabled: true,
+                use_music_note_prefix: true,
+                show_pause_emoji: true,
+                auto_switch_state: true,
+                auto_switch_session: true,
+                forget_session_seconds: 300,
+                show_progress: true,
+                seekbar_style: "Small numbers".to_string(),
+            },
+            network_stats_options: NetworkStatsOptions {
+                enabled: true,
+                config: default_network_options,
+            },
+            status_options: StatusOptions {
+                enabled: true,
+                cycle_status: false,
+                cycle_interval: 60,
+                cycle_random: false,
+                enable_custom_prefix_shuffle: false,
+                custom_prefixes: String::new(),
+                add_speech_bubble: true,
+            },
             status_tab: StatusTab {
                 new_message: String::new(),
             },
-            status_messages: Vec::new(),
-            time_options: TimeOptions::new(),
+            status_messages: vec!["Powered by RustyChatBox!".to_string()],
+            time_options: TimeOptions {
+                config: TimeConfig {
+                    enabled: true,
+                    show_my_time_prefix: true,
+                    use_24_hour: false,
+                    use_system_culture: true,
+                    auto_dst: true,
+                    custom_timezone: None,
+                },
+            },
             current_tab: Tab::Integrations,
-            send_to_vrchat: false,
+            send_to_vrchat: true,
             live_edit_enabled: false,
         };
         if let Ok(json) = serde_json::to_string_pretty(&config) {

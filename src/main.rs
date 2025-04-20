@@ -27,6 +27,7 @@ mod modules {
     pub mod appo_mod;
 }
 
+// State machine for loading tasks
 #[derive(Clone, PartialEq)]
 enum LoadingState {
     SingleInstance,
@@ -35,6 +36,7 @@ enum LoadingState {
     OscClient,
     Dependencies,
     Icon,
+    Fonts,
     InitializeApp,
     Done,
 }
@@ -47,6 +49,7 @@ struct LoadingApp {
     config: Option<Config>,
     osc_client: Option<OscClient>,
     icon_data: Option<IconData>,
+    font_definitions: Option<egui::FontDefinitions>,
     error: Option<String>,
 }
 
@@ -63,6 +66,7 @@ impl LoadingApp {
             config: None,
             osc_client: None,
             icon_data: None,
+            font_definitions: None,
             error: None,
         }
     }
@@ -89,7 +93,7 @@ impl LoadingApp {
                     return None::<RustyGUI>;
                 }
                 self.state = LoadingState::ConfigDir;
-                self.progress = 0.14; // 1/7 tasks
+                self.progress = 0.125; // 1/8 tasks
                 self.message = "Setting up config directory".to_string();
             }
             LoadingState::ConfigDir => {
@@ -101,7 +105,7 @@ impl LoadingApp {
                         return None::<RustyGUI>;
                     }
                 }
-                let log_file = config_dir.join("app.log");
+                let log_file = config_dir.join("latest.log");
                 let _ = fs::remove_file(&log_file);
                 if let Err(e) = WriteLogger::init(
                     LevelFilter::Info,
@@ -113,7 +117,7 @@ impl LoadingApp {
                     return None::<RustyGUI>;
                 }
                 self.state = LoadingState::LoadConfig;
-                self.progress = 0.28; // 2/7
+                self.progress = 0.25; // 2/8
                 self.message = "Loading configuration".to_string();
             }
             LoadingState::LoadConfig => {
@@ -131,7 +135,7 @@ impl LoadingApp {
                 let config = Config::load_or_create(&self.config_path, default_network_options);
                 self.config = Some(config);
                 self.state = LoadingState::OscClient;
-                self.progress = 0.42; // 3/7
+                self.progress = 0.375; // 3/8
                 self.message = "Initializing OSC client".to_string();
             }
             LoadingState::OscClient => {
@@ -146,7 +150,7 @@ impl LoadingApp {
                     }
                 }
                 self.state = LoadingState::Dependencies;
-                self.progress = 0.57; // 4/7
+                self.progress = 0.5; // 4/8
                 self.message = "Checking dependencies".to_string();
             }
             LoadingState::Dependencies => {
@@ -156,7 +160,7 @@ impl LoadingApp {
                     return None::<RustyGUI>;
                 }
                 self.state = LoadingState::Icon;
-                self.progress = 0.71; // 5/7
+                self.progress = 0.625; // 5/8
                 self.message = "Loading icon".to_string();
             }
             LoadingState::Icon => {
@@ -187,12 +191,25 @@ impl LoadingApp {
                     width,
                     height,
                 });
+                self.state = LoadingState::Fonts;
+                self.progress = 0.75; // 6/8
+                self.message = "Loading fonts".to_string();
+            }
+            LoadingState::Fonts => {
+                let mut fonts = egui::FontDefinitions::default();
+                fonts.font_data.insert(
+                    "NotoEmoji".to_owned(),
+                    egui::FontData::from_static(include_bytes!("../assets/NotoEmoji-Regular.ttf")),
+                );
+                fonts.families.entry(egui::FontFamily::Proportional).or_insert_with(Vec::new).push("NotoEmoji".to_owned());
+                fonts.families.entry(egui::FontFamily::Monospace).or_insert_with(Vec::new).push("NotoEmoji".to_owned());
+                self.font_definitions = Some(fonts);
                 self.state = LoadingState::InitializeApp;
-                self.progress = 0.86; // 6/7
+                self.progress = 0.875; // 7/8
                 self.message = "Initializing application".to_string();
             }
             LoadingState::InitializeApp => {
-                if let (Some(config), Some(osc_client)) = (self.config.take(), self.osc_client.take()) {
+                if let (Some(config), Some(osc_client), Some(font_definitions)) = (self.config.take(), self.osc_client.take(), self.font_definitions.take()) {
                     let clipboard = match Clipboard::new() {
                         Ok(clipboard) => clipboard,
                         Err(e) => {
@@ -203,11 +220,12 @@ impl LoadingApp {
                     };
                     let app = App::new(osc_client, config, clipboard);
                     self.state = LoadingState::Done;
-                    self.progress = 1.0; // 7/7
+                    self.progress = 1.0; // 8/8
                     self.message = "Complete".to_string();
                     return Some(RustyGUI {
                         app,
                         config_path: self.config_path.clone(),
+                        font_definitions,
                     });
                 }
             }
@@ -220,10 +238,13 @@ impl LoadingApp {
 struct RustyGUI {
     app: App,
     config_path: std::path::PathBuf,
+    font_definitions: egui::FontDefinitions,
 }
 
 impl eframe::App for RustyGUI {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Set fonts once at startup
+        ctx.set_fonts(self.font_definitions.clone());
         self.app.update(ctx, frame);
         self.app.save_config_if_needed(&self.config_path);
     }

@@ -13,18 +13,6 @@ pub struct MediaLinkOptions {
     pub seekbar_style: String,
 }
 impl MediaLinkOptions {
-    pub fn new() -> Self {
-        Self {
-            enabled: true,
-            use_music_note_prefix: false,
-            show_pause_emoji: true,
-            auto_switch_state: true,
-            auto_switch_session: true,
-            forget_session_seconds: 300,
-            show_progress: true,
-            seekbar_style: "Small numbers".to_string(),
-        }
-    }
     pub fn show_medialink_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut response = ui.interact(
             egui::Rect::EVERYTHING,

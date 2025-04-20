@@ -14,19 +14,6 @@ pub struct AppOptions {
     pub osc_options: OscOptions,
 }
 
-impl AppOptions {
-    pub fn new() -> Self {
-        Self {
-            osc_options: OscOptions {
-                ip: "127.0.0.1".to_string(),
-                port: 9000,
-                update_rate: 1.6, // Changed from 0.1
-                separate_lines: false,
-            },
-        }
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AppOptionsOptions {
     pub app_options: AppOptions,

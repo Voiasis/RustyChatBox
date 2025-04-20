@@ -1,7 +1,7 @@
 // Dependency checks for RustyChatBox
 use std::process::Command;
 pub fn check_dependencies() -> Result<(), String> {
-    let required_packages = vec!["playerctl", "qt5ct", "lshw"];
+    let required_packages = vec!["playerctl", "lshw"];
     for package in required_packages {
         if Command::new("which")
             .arg(package)

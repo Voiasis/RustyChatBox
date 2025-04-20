@@ -6,12 +6,6 @@ pub struct ExtraOptions {
     pub slim_mode: bool,
 }
 impl ExtraOptions {
-    pub fn new() -> Self {
-        Self {
-            enabled: true,
-            slim_mode: false,
-        }
-    }
     pub fn show_extra_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut response = ui.interact(
             egui::Rect::EVERYTHING,
