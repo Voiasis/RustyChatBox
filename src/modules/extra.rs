@@ -1,10 +1,21 @@
 use serde::{Serialize, Deserialize};
 use eframe::egui;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtraOptions {
     pub enabled: bool,
     pub slim_mode: bool,
 }
+
+impl Default for ExtraOptions {
+    fn default() -> Self {
+        ExtraOptions {
+            enabled: true,
+            slim_mode: false,
+        }
+    }
+}
+
 impl ExtraOptions {
     pub fn show_extra_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut response = ui.interact(

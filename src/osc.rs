@@ -14,7 +14,7 @@ impl OscClient {
         Ok(Self { socket, addr })
     }
 
-    pub fn send_chatbox_message(&self, message: &str, fx_sound: bool, slim_mode: bool) -> Result<()> {
+    pub fn send_chatbox_message(&self, message: &str, _fx_sound: bool, slim_mode: bool) -> Result<()> {
         let mut msg = message.to_string();
         if slim_mode {
             msg.push_str("\u{0003}\u{001f}");
@@ -24,7 +24,7 @@ impl OscClient {
             args: vec![
                 OscType::String(msg),
                 OscType::Bool(true),
-                OscType::Bool(fx_sound),
+                OscType::Bool(false),
             ],
         }))?;
         self.socket.send_to(&msg_buf, &self.addr)?;

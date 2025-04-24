@@ -1,6 +1,6 @@
-// netw_mod.rs
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkOptions {
     pub use_interface_max_speed: bool,
@@ -13,11 +13,38 @@ pub struct NetworkOptions {
     pub show_utilization: bool,
     pub stylized_chars: bool,
 }
+
+impl Default for NetworkOptions {
+    fn default() -> Self {
+        NetworkOptions {
+            use_interface_max_speed: false,
+            show_download_speed: false,
+            show_upload_speed: false,
+            show_max_download: false,
+            show_max_upload: false,
+            show_total_download: false,
+            show_total_upload: false,
+            show_utilization: false,
+            stylized_chars: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkStatsOptions {
     pub enabled: bool,
     pub config: NetworkOptions,
 }
+
+impl Default for NetworkStatsOptions {
+    fn default() -> Self {
+        NetworkStatsOptions {
+            enabled: true,
+            config: NetworkOptions::default(),
+        }
+    }
+}
+
 impl NetworkStatsOptions {
     pub fn new(config: NetworkOptions) -> Self {
         Self {
@@ -25,6 +52,7 @@ impl NetworkStatsOptions {
             config,
         }
     }
+
     pub fn show_network_stats_options(&mut self, ui: &mut eframe::egui::Ui) -> eframe::egui::Response {
         let mut response = ui.interact(
             eframe::egui::Rect::EVERYTHING,
@@ -43,39 +71,44 @@ impl NetworkStatsOptions {
         response
     }
 }
+
 pub struct NetworkStats;
+
 impl NetworkStats {
     pub fn get_interfaces() -> Vec<NetworkInterface> {
         NetworkInterface::show()
             .map_err(|e| eprintln!("Failed to get network interfaces: {}", e))
             .unwrap_or_default()
     }
-    /*pub fn get_interface_stats(interface_name: &str) -> Option<NetworkInterface> {
-        Self::get_interfaces()
-            .into_iter()
-            .find(|iface| iface.name == interface_name)
-    }*/
+
     pub fn get_download_speed(_interface_name: &str) -> Option<f64> {
         None
     }
+
     pub fn get_upload_speed(_interface_name: &str) -> Option<f64> {
         None
     }
+
     pub fn get_max_download_speed(_interface_name: &str) -> Option<f64> {
         None
     }
+
     pub fn get_max_upload_speed(_interface_name: &str) -> Option<f64> {
         None
     }
+
     pub fn get_total_download(_interface_name: &str) -> Option<u64> {
         None
     }
+
     pub fn get_total_upload(_interface_name: &str) -> Option<u64> {
         None
     }
+
     pub fn get_utilization(_interface_name: &str) -> Option<f32> {
         None
     }
+
     pub fn get_formatted_stats(options: &NetworkOptions, interface_name: &str) -> String {
         let mut parts = Vec::new();
 

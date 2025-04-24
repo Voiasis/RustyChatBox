@@ -1,6 +1,7 @@
 use eframe::egui;
 use serde::{Serialize, Deserialize};
 use std::collections::VecDeque;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub text: String,
@@ -8,6 +9,7 @@ pub struct ChatMessage {
     pub editing: bool,
     pub edit_text: String,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatOptions {
     pub enabled: bool,
@@ -26,6 +28,29 @@ pub struct ChatOptions {
     pub last_send_ms: Option<u64>,
     pub queued_message: Option<String>,
 }
+
+impl Default for ChatOptions {
+    fn default() -> Self {
+        ChatOptions {
+            enabled: true,
+            chat_timeout: 15,
+            add_speech_bubble: false,
+            use_custom_idle_prefix: false,
+            play_fx_sound: true,
+            play_fx_resend: true,
+            small_delay: false,
+            delay_seconds: 0.1,
+            override_display_time: false,
+            display_time_seconds: 2.0,
+            edit_messages: false,
+            live_editing: false,
+            messages: VecDeque::new(),
+            last_send_ms: None,
+            queued_message: None,
+        }
+    }
+}
+
 impl ChatOptions {
     pub fn add_message(&mut self, text: String) {
         if self.messages.len() >= 10 {
@@ -41,9 +66,11 @@ impl ChatOptions {
             edit_text: text,
         });
     }
+
     pub fn clear_messages(&mut self) {
         self.messages.clear();
     }
+
     pub fn can_send(&self) -> bool {
         if !self.small_delay {
             return true;
@@ -59,9 +86,11 @@ impl ChatOptions {
             None => true,
         }
     }
+
     pub fn set_queued_message(&mut self, message: String) {
         self.queued_message = Some(message);
     }
+
     pub fn take_queued_message(&mut self) -> Option<String> {
         self.last_send_ms = Some(
             std::time::SystemTime::now()
@@ -71,6 +100,7 @@ impl ChatOptions {
         );
         self.queued_message.take()
     }
+
     pub fn get_remaining_time(&self, message: &ChatMessage) -> u32 {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -83,6 +113,7 @@ impl ChatOptions {
             self.chat_timeout - elapsed
         }
     }
+
     pub fn show_chatting_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut response = ui.interact(
             egui::Rect::EVERYTHING,

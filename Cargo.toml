@@ -5,7 +5,9 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-eframe = { version = "0.22", default-features = false, features = ["default", "wayland", "glow"] }
+eframe = { version = "0.28.1", default-features = false, features = ["default", "wayland", "glow"] }
+wayland-protocols-wlr = "0.3"
+wayland-client = "0.31"
 image = { version = "0.24", default-features = false, features = ["png"] }
 serde = { version = "1.0", features = ["derive"] }
 network-interface = "2.0.1"
@@ -16,6 +18,7 @@ simplelog = "0.12"
 chrono-tz = "0.8"
 arboard = "3.4.0"
 sysinfo = "0.29"
+x11-dl = "2.21"
 rosc = "0.11.4"
 chrono = "0.4"
 anyhow = "1.0"
@@ -23,6 +26,11 @@ open = "5.3.0"
 dirs = "5.0"
 rand = "0.8"
 log = "0.4"
+fern = "0.6.2"
+dbus = "0.9"
+openvr = "0.7.0"
+openxr = { git = "https://github.com/galister/openxrs", rev = "af4a55d", features = ["linked"] }
+rust-ini = "0.21"
 
 [profile.release]
 strip = true

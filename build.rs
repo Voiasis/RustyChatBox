@@ -23,7 +23,7 @@ fn main() {
         icon_src,
         format!("{}/usr/share/icons/hicolor/64x64/apps/rustychatbox.png", app_dir),
     )
-    .expect("Failed to copy icon");
+        .expect("Failed to copy icon");
 
     // Create .desktop file
     let desktop_content = "\
@@ -44,6 +44,7 @@ Comment=A chat application built with Rust
         format!("{}/usr/share/applications/rustychatbox.desktop", app_dir),
     )
     .expect("Failed to copy .desktop file");
+
     // Create AppRun
     let apprun_content = "\
 #!/bin/bash

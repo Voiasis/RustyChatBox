@@ -3,6 +3,7 @@ use chrono_tz::Tz;
 use log::error;
 use serde::{Deserialize, Serialize};
 use eframe::egui;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeConfig {
     pub enabled: bool,
@@ -12,10 +13,33 @@ pub struct TimeConfig {
     pub auto_dst: bool,
     pub custom_timezone: Option<String>,
 }
+
+impl Default for TimeConfig {
+    fn default() -> Self {
+        TimeConfig {
+            enabled: true,
+            show_my_time_prefix: true,
+            use_24_hour: false,
+            use_system_culture: true,
+            auto_dst: true,
+            custom_timezone: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeOptions {
     pub config: TimeConfig,
 }
+
+impl Default for TimeOptions {
+    fn default() -> Self {
+        TimeOptions {
+            config: TimeConfig::default(),
+        }
+    }
+}
+
 impl TimeOptions {
     pub fn show_time_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut response = ui.interact(
@@ -48,11 +72,10 @@ impl TimeOptions {
         response
     }
 }
+
 pub struct TimeModule;
+
 impl TimeModule {
-    /*pub fn new() -> Self {
-        Self
-    }*/
     pub fn get_local_time(options: &TimeOptions) -> String {
         let now = Local::now();
         let time_str = match &options.config.custom_timezone {

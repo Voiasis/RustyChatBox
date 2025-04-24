@@ -28,8 +28,33 @@ pub struct ComponentStatsOptions {
     pub ram_stylized_uppercase: bool,
 }
 
-impl ComponentStatsOptions {
+impl Default for ComponentStatsOptions {
+    fn default() -> Self {
+        ComponentStatsOptions {
+            enabled: true,
+            show_cpu: true,
+            show_gpu: true,
+            show_vram: true,
+            show_ram: true,
+            cpu_display_model: false,
+            cpu_custom_model: None,
+            cpu_round_usage: false,
+            cpu_stylized_uppercase: false,
+            gpu_display_model: false,
+            gpu_custom_model: None,
+            gpu_round_usage: false,
+            gpu_stylized_uppercase: false,
+            vram_round_usage: false,
+            vram_show_max: false,
+            vram_stylized_uppercase: false,
+            ram_round_usage: false,
+            ram_show_max: false,
+            ram_stylized_uppercase: false,
+        }
+    }
+}
 
+impl ComponentStatsOptions {
     pub fn show_component_stats_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut response = ui.interact(
             egui::Rect::EVERYTHING,

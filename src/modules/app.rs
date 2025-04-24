@@ -9,15 +9,43 @@ pub struct OscOptions {
     pub separate_lines: bool,
 }
 
+impl Default for OscOptions {
+    fn default() -> Self {
+        OscOptions {
+            ip: "127.0.0.1".to_string(),
+            port: 9000,
+            update_rate: 1.6,
+            separate_lines: true,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AppOptions {
     pub osc_options: OscOptions,
+}
+
+impl Default for AppOptions {
+    fn default() -> Self {
+        AppOptions {
+            osc_options: OscOptions::default(),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AppOptionsOptions {
     pub app_options: AppOptions,
     pub enabled: bool,
+}
+
+impl Default for AppOptionsOptions {
+    fn default() -> Self {
+        AppOptionsOptions {
+            app_options: AppOptions::default(),
+            enabled: true,
+        }
+    }
 }
 
 impl AppOptionsOptions {
@@ -38,7 +66,7 @@ impl AppOptionsOptions {
         ui.horizontal(|ui| {
             ui.label("Update Rate: ");
             response |= ui.add(
-                egui::Slider::new(&mut self.app_options.osc_options.update_rate, 1.6..=10.0) // Changed from 0.01..=1.0
+                egui::Slider::new(&mut self.app_options.osc_options.update_rate, 1.6..=10.0)
                     .step_by(0.1)
                     .text("seconds"),
             );

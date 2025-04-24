@@ -1,6 +1,7 @@
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use eframe::egui;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusOptions {
     pub enabled: bool,
@@ -11,6 +12,21 @@ pub struct StatusOptions {
     pub custom_prefixes: String,
     pub add_speech_bubble: bool,
 }
+
+impl Default for StatusOptions {
+    fn default() -> Self {
+        StatusOptions {
+            enabled: true,
+            cycle_status: false,
+            cycle_interval: 60,
+            cycle_random: false,
+            enable_custom_prefix_shuffle: false,
+            custom_prefixes: "".to_string(),
+            add_speech_bubble: false,
+        }
+    }
+}
+
 impl StatusOptions {
     pub fn show_status_options(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut response = ui.interact(
@@ -36,11 +52,13 @@ impl StatusOptions {
         response
     }
 }
+
 pub struct StatusModule {
     pub messages: Vec<String>,
     current_index: usize,
     last_cycle: std::time::Instant,
 }
+
 impl StatusModule {
     pub fn new() -> Self {
         Self {
@@ -49,9 +67,11 @@ impl StatusModule {
             last_cycle: std::time::Instant::now(),
         }
     }
+
     pub fn add_message(&mut self, message: String) {
         self.messages.push(message);
     }
+
     pub fn remove_message(&mut self, index: usize) {
         if index < self.messages.len() {
             self.messages.remove(index);
@@ -60,11 +80,7 @@ impl StatusModule {
             }
         }
     }
-    /*pub fn edit_message(&mut self, index: usize, new_message: String) {
-        if index < self.messages.len() {
-            self.messages[index] = new_message;
-        }
-    }*/
+
     pub fn get_current_message(&self, options: &StatusOptions) -> Option<String> {
         if self.messages.is_empty() {
             return None;
@@ -83,6 +99,7 @@ impl StatusModule {
         }
         Some(message)
     }
+
     pub fn update_cycle(&mut self, options: &StatusOptions) {
         if !options.cycle_status || self.messages.is_empty() {
             return;
