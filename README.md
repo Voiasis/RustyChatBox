@@ -1,3 +1,6 @@
+I'm not planning on continuing this project. I recommend using [OSC-DreamChatbox](https://github.com/yakuda-stack/OSC-DreamChatbox) instead.
+
+
 ## RustyChatBox
 
 ### What:
